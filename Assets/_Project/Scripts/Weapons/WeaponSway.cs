@@ -5,7 +5,7 @@ namespace SandHouse.Weapons
 {
     /// <summary>
     /// Procedural first-person weapon motion on the weapon holder: look sway, bob (synced with HeadBob),
-    /// strafe tilt, jump/fall offset, landing dip and a sprint pose.
+    /// strafe tilt, jump/fall offset, landing dip and poses for dashing, crouching, sliding and climbing.
     /// The weapon itself animates its own model (recoil, reload) underneath this, so the effects stack.
     /// </summary>
     public class WeaponSway : MonoBehaviour
@@ -26,7 +26,8 @@ namespace SandHouse.Weapons
         [SerializeField] float bobHorizontal = 0.014f;
         [SerializeField] float bobVertical = 0.012f;
         [SerializeField] float bobRoll = 1.2f;
-        [SerializeField] float sprintBobMultiplier = 1.8f;
+        [Tooltip("Bob multiplier when moving faster than run speed.")]
+        [SerializeField] float fastBobMultiplier = 1.6f;
 
         [Header("Movement")]
         [SerializeField] float strafeRollPerSpeed = 0.7f;
@@ -42,12 +43,15 @@ namespace SandHouse.Weapons
         [SerializeField] float springStiffness = 120f;
         [SerializeField] float springDamping = 12f;
 
-        [Header("Sprint Pose")]
-        [SerializeField] Vector3 sprintPosition = new Vector3(-0.04f, -0.05f, -0.03f);
-        [SerializeField] Vector3 sprintRotation = new Vector3(14f, -22f, 10f);
-        [SerializeField] float sprintBlendSpeed = 8f;
-        [Tooltip("After shooting, the sprint pose stays off for this long.")]
-        [SerializeField] float sprintPoseShotCooldown = 0.4f;
+        [Header("Dash Pose")]
+        [SerializeField] Vector3 dashPosition = new Vector3(-0.02f, -0.04f, -0.08f);
+        [SerializeField] Vector3 dashRotation = new Vector3(10f, -12f, 8f);
+        [Tooltip("Dash pose blends in/out fast since dashes are short.")]
+        [SerializeField] float dashBlendSpeed = 16f;
+        [Tooltip("After shooting, the dash pose stays off for this long.")]
+        [SerializeField] float dashPoseShotCooldown = 0.25f;
+        [Tooltip("Blend speed for the crouch / slide poses.")]
+        [SerializeField] float poseBlendSpeed = 8f;
 
         [Header("Crouch Pose")]
         [SerializeField] Vector3 crouchPosition = new Vector3(-0.015f, -0.015f, 0f);
@@ -71,7 +75,7 @@ namespace SandHouse.Weapons
         Vector3 lookSwayPos, lookSwayRot;
         float strafeRoll, verticalOffset;
         float landOffset, landVelocity;
-        float sprintBlend, crouchBlend, slideBlend, mantleBlend;
+        float dashBlend, crouchBlend, slideBlend, mantleBlend;
         float lastShotTime = float.NegativeInfinity;
 
         void Awake()
@@ -103,7 +107,7 @@ namespace SandHouse.Weapons
         void OnFired()
         {
             lastShotTime = Time.time;
-            sprintBlend = 0f; // snap out of the sprint pose immediately
+            dashBlend = 0f; // snap out of the dash pose immediately
         }
 
         void LateUpdate()
@@ -132,7 +136,8 @@ namespace SandHouse.Weapons
             float bobRot = 0f;
             if (headBob != null)
             {
-                float amount = headBob.Weight * (motor.IsSprinting ? sprintBobMultiplier : 1f);
+                bool fast = motor.HorizontalSpeed > motor.RunSpeed + 0.5f;
+                float amount = headBob.Weight * (fast ? fastBobMultiplier : 1f);
                 bobPos = HeadBob.BobOffset(headBob.Phase, bobHorizontal, bobVertical) * amount;
                 bobRot = Mathf.Sin(headBob.Phase) * bobRoll * amount;
             }
@@ -148,29 +153,28 @@ namespace SandHouse.Weapons
             landOffset += landVelocity * dt;
 
             // Poses.
-            bool recentlyShot = Time.time - lastShotTime < sprintPoseShotCooldown;
-            bool reloading = weapon != null && weapon.IsReloading;
-            bool sprintPose = motor.IsSprinting && motor.IsGrounded && motor.HorizontalSpeed > 1f && !recentlyShot && !reloading;
-            sprintBlend = Mathf.MoveTowards(sprintBlend, sprintPose ? 1f : 0f, sprintBlendSpeed * dt);
-            crouchBlend = Mathf.MoveTowards(crouchBlend, motor.IsCrouching && !motor.IsSliding ? 1f : 0f, sprintBlendSpeed * dt);
-            slideBlend = Mathf.MoveTowards(slideBlend, motor.IsSliding ? 1f : 0f, sprintBlendSpeed * dt);
+            bool recentlyShot = Time.time - lastShotTime < dashPoseShotCooldown;
+            bool dashPose = motor.IsDashing && !recentlyShot;
+            dashBlend = Mathf.MoveTowards(dashBlend, dashPose ? 1f : 0f, dashBlendSpeed * dt);
+            crouchBlend = Mathf.MoveTowards(crouchBlend, motor.IsCrouching && !motor.IsSliding ? 1f : 0f, poseBlendSpeed * dt);
+            slideBlend = Mathf.MoveTowards(slideBlend, motor.IsSliding ? 1f : 0f, poseBlendSpeed * dt);
             // Gun drops out of view while the hands are busy (climbing, rolling).
             bool handsBusy = motor.IsMantling || motor.IsRolling;
             mantleBlend = Mathf.MoveTowards(mantleBlend, handsBusy ? 1f : 0f, mantleBlendSpeed * dt);
-            float sprintEase = Mathf.SmoothStep(0f, 1f, sprintBlend);
+            float dashEase = Mathf.SmoothStep(0f, 1f, dashBlend);
             float crouchEase = Mathf.SmoothStep(0f, 1f, crouchBlend);
             float slideEase = Mathf.SmoothStep(0f, 1f, slideBlend);
             float mantleEase = Mathf.SmoothStep(0f, 1f, mantleBlend);
 
             Vector3 position = lookSwayPos + bobPos
                                + new Vector3(0f, verticalOffset + landOffset, 0f)
-                               + sprintPosition * sprintEase
+                               + dashPosition * dashEase
                                + crouchPosition * crouchEase
                                + slidePosition * slideEase
                                + mantlePosition * mantleEase;
             Vector3 euler = lookSwayRot
                             + new Vector3(-verticalOffset * 100f, 0f, strafeRoll + bobRot + crouchRoll * crouchEase)
-                            + sprintRotation * sprintEase
+                            + dashRotation * dashEase
                             + slideRotation * slideEase
                             + mantleRotation * mantleEase;
 

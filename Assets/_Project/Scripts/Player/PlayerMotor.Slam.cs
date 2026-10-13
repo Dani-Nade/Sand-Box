@@ -55,6 +55,7 @@ namespace SandHouse.Player
                 return;
 
             if (IsDiving) EndDive();
+            if (IsDashing) EndDash();
             IsSlamming = true;
             slamStartY = transform.position.y;
             horizontalVelocity *= slamHorizontalKeep;

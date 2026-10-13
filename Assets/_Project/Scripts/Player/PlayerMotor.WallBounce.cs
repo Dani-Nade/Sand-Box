@@ -13,7 +13,7 @@ namespace SandHouse.Player
         [SerializeField] bool enableWallBounce = true;
         [SerializeField] float wallBounceUpSpeed = 7f;
         [Tooltip("Speed pushed away from the wall.")]
-        [SerializeField] float wallBounceOutSpeed = 6.5f;
+        [SerializeField] float wallBounceOutSpeed = 8f;
         [Tooltip("How much of your speed along the wall you keep (1 = all of it).")]
         [SerializeField, Range(0f, 1.5f)] float wallBounceAlongKeep = 1f;
         [Tooltip("How close (beyond your body) a wall must be.")]
@@ -51,6 +51,7 @@ namespace SandHouse.Player
 
             normal.y = 0f;
             normal.Normalize();
+            if (IsDashing) EndDash();
 
             Vector3 along = Vector3.ProjectOnPlane(horizontalVelocity, normal) * wallBounceAlongKeep;
             horizontalVelocity = along + normal * wallBounceOutSpeed;

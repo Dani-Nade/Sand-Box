@@ -12,7 +12,7 @@ namespace SandHouse.Player
     {
         [Header("Dead Eye Dive")]
         [SerializeField] bool enableDeadEye = true;
-        [SerializeField] float diveSpeed = 9f;
+        [SerializeField] float diveSpeed = 13f;
         [SerializeField] float diveUpSpeed = 4.5f;
         [SerializeField, Range(0.05f, 1f)] float deadEyeTimeScale = 0.3f;
         [Tooltip("Longest the slow-mo can last, in real seconds.")]
@@ -44,6 +44,7 @@ namespace SandHouse.Player
             if (dir.sqrMagnitude < 0.01f) dir = FlatForward;
             dir.Normalize();
 
+            if (IsDashing) EndDash();
             horizontalVelocity = dir * Mathf.Max(diveSpeed, Vector3.Dot(horizontalVelocity, dir));
             verticalVelocity = Mathf.Max(verticalVelocity, diveUpSpeed);
             lastGroundedTime = float.NegativeInfinity; // no coyote jump out of a dive

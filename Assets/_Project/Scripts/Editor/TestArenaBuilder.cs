@@ -375,7 +375,7 @@ namespace SandHouse.Editor
         static void BuildMovementTech(Transform parent)
         {
             // Mantle walls. Max mantle reach is 1.5 m above your feet, so ~2.8 m walls need a jump at the peak;
-            // the 3.2 m wall is out of reach on purpose. Sprint at them and press Ctrl at the end of the climb to mantle-slide.
+            // the 3.2 m wall is out of reach on purpose. Run/dash at them and press Ctrl at the end of the climb to mantle-slide.
             float[] heights = { 1f, 1.5f, 2f, 2.5f, 3.2f };
             for (int i = 0; i < heights.Length; i++)
             {
@@ -383,7 +383,7 @@ namespace SandHouse.Editor
                 BoxOnFloor($"Mantle Wall {heights[i]}m", parent, x, 24f, new Vector3(3f, heights[i], 2f), mats.Obstacle);
                 Label($"{heights[i]:0.#} m", parent, new Vector3(x, 0.04f, 21.8f), Quaternion.Euler(90f, 0f, 0f), 0.08f);
             }
-            Label("MANTLE  (jump + hold W)   /   MANTLE SLIDE  (sprint in, press Ctrl as you reach the top)", parent, new Vector3(-3f, 4f, 25.2f), Quaternion.identity, 0.045f);
+            Label("MANTLE  (jump + hold W)   /   MANTLE SLIDE  (run in, press Ctrl as you reach the top)", parent, new Vector3(-3f, 4f, 25.2f), Quaternion.identity, 0.045f);
 
             // Wall bounce corridor (3.5 m between walls): zig-zag up the walls, then mantle onto the 3.5 m platform at the end.
             const float corridorLeft = 8f, corridorRight = 12f, corridorStart = 28f, corridorLength = 16f, goalHeight = 3.5f;

@@ -10,7 +10,7 @@ namespace SandHouse.Player
     public class PlayerInputReader : MonoBehaviour
     {
         InputActionMap map;
-        InputAction move, look, jump, sprint, crouch, attack, reload, lasso, deadEye;
+        InputAction move, look, jump, dash, crouch, attack, reload, lasso, deadEye;
 
         public Vector2 Move => move.ReadValue<Vector2>();
         public Vector2 Look => look.ReadValue<Vector2>();
@@ -18,7 +18,7 @@ namespace SandHouse.Player
 
         public bool JumpPressed => jump.WasPressedThisFrame();
         public bool JumpHeld => jump.IsPressed();
-        public bool SprintHeld => sprint.IsPressed();
+        public bool DashPressed => dash.WasPressedThisFrame();
         public bool CrouchHeld => crouch.IsPressed();
         public bool CrouchPressed => crouch.WasPressedThisFrame();
         public bool CrouchReleased => crouch.WasReleasedThisFrame();
@@ -35,7 +35,7 @@ namespace SandHouse.Player
             move = map.FindAction("Move", true);
             look = map.FindAction("Look", true);
             jump = map.FindAction("Jump", true);
-            sprint = map.FindAction("Sprint", true);
+            dash = map.FindAction("Dash", true);
             crouch = map.FindAction("Crouch", true);
             attack = map.FindAction("Attack", true);
             reload = map.FindAction("Reload", true);
