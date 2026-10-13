@@ -32,7 +32,7 @@ namespace SandHouse.Player
         [SerializeField] float rollInputWindow = 0.25f;
         [SerializeField] float rollDuration = 0.5f;
         [Tooltip("Rolling always carries you at least this fast.")]
-        [SerializeField] float rollMinSpeed = 6f;
+        [SerializeField] float rollMinSpeed = 9f;
         [SerializeField] float rollFriction = 3f;
         [SerializeField, Range(0f, 1f)] float rollDamageMultiplier = 0.4f;
 

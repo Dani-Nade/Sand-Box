@@ -8,12 +8,14 @@ namespace SandHouse.Player
     /// First-person movement on a CharacterController. The transform's pivot is at the player's feet.
     ///
     /// Split into partial files, one per movement feature:
-    ///   PlayerMotor.cs            core: walk/sprint/crouch/jump, grounding, collision
+    ///   PlayerMotor.cs            core: run/crouch/jump/turning, grounding, collision
+    ///   PlayerMotor.Dash.cs       ground + air dashes (replaces sprinting)
     ///   PlayerMotor.Landing.cs    hard landings, fall damage, landing roll
     ///   PlayerMotor.Slide.cs      sliding
     ///   PlayerMotor.Mantle.cs     mantling + timed mantle slide
     ///   PlayerMotor.WallBounce.cs
-    ///   PlayerMotor.AirStrafe.cs
+    ///   PlayerMotor.AirStrafe.cs  air strafing + air steering
+    ///   PlayerMotor.BunnyHop.cs
     ///   PlayerMotor.Lasso.cs      lasso swing / yank
     ///   PlayerMotor.DeadEye.cs    slow-motion dive
     ///   PlayerMotor.Slam.cs       ground slam + slam jump
@@ -28,23 +30,31 @@ namespace SandHouse.Player
         [SerializeField] Transform aimTransform;
 
         [Header("Speed (m/s)")]
-        [SerializeField] float walkSpeed = 5f;
-        [SerializeField] float sprintSpeed = 8.5f;
-        [SerializeField] float crouchSpeed = 2.5f;
+        [Tooltip("Normal running speed. There's no sprint - Shift dashes instead (see PlayerMotor.Dash.cs).")]
+        [SerializeField] float runSpeed = 10f;
+        [SerializeField] float crouchSpeed = 4.5f;
         [Tooltip("Speed multiplier when moving backwards.")]
         [SerializeField, Range(0.1f, 1f)] float backwardSpeedMultiplier = 0.65f;
         [Tooltip("Speed multiplier when strafing sideways.")]
         [SerializeField, Range(0.1f, 1f)] float strafeSpeedMultiplier = 0.85f;
 
         [Header("Acceleration (m/s²)")]
-        [SerializeField] float groundAcceleration = 40f;
-        [SerializeField] float groundDeceleration = 35f;
-        [Tooltip("Acceleration from walking speed up to sprint speed (sprint wind-up).")]
-        [SerializeField] float sprintAcceleration = 14f;
-        [Tooltip("Slowdown when moving faster than your normal top speed on the ground (after slides, bounces). Lower = keep momentum longer.")]
-        [SerializeField] float overspeedDeceleration = 10f;
-        [Tooltip("Air control used while slower than walking speed. Above that, air strafing rules apply.")]
-        [SerializeField] float airAcceleration = 10f;
+        [SerializeField] float groundAcceleration = 60f;
+        [SerializeField] float groundDeceleration = 50f;
+        [Tooltip("Slowdown when moving faster than your normal top speed on the ground (after dashes, slides, bounces). Lower = keep momentum longer.")]
+        [SerializeField] float overspeedDeceleration = 12f;
+        [Tooltip("Air control used while slower than running speed. Above that, air strafing rules apply.")]
+        [SerializeField] float airAcceleration = 14f;
+
+        [Header("Turning (°/s)")]
+        [Tooltip("How fast your running direction follows your input at normal speed.")]
+        [SerializeField] float groundTurnRate = 720f;
+        [Tooltip("Turn rate when moving faster than normal (after a dash/slide/hop) - still steerable, just heavier.")]
+        [SerializeField] float fastTurnRate = 450f;
+        [Tooltip("Fraction of speed lost per 90° of turning (sharp turns cost a little speed).")]
+        [SerializeField, Range(0f, 1f)] float turnSpeedLoss = 0.1f;
+        [Tooltip("Turning further than this counts as reversing: you brake instead of turning.")]
+        [SerializeField, Range(90f, 180f)] float reverseAngle = 140f;
 
         [Header("Jump")]
         [SerializeField] float jumpHeight = 1.2f;
@@ -84,10 +94,9 @@ namespace SandHouse.Player
 
         public Vector3 Velocity => horizontalVelocity + Vector3.up * verticalVelocity;
         public float HorizontalSpeed => horizontalVelocity.magnitude;
-        public float WalkSpeed => walkSpeed;
+        public float RunSpeed => runSpeed;
         public bool IsGrounded { get; private set; }
         public bool IsCrouching { get; private set; }
-        public bool IsSprinting { get; private set; }
 
         public event Action Jumped;
         public event Action<float> Landed; // impact speed (m/s, positive)
@@ -108,6 +117,7 @@ namespace SandHouse.Player
             controller = GetComponent<CharacterController>();
             input = GetComponent<PlayerInputReader>();
             selfHealth = GetComponent<Health>();
+            dashCharge = maxDashCharges;
             SetHeight(standingHeight);
         }
 
@@ -120,6 +130,7 @@ namespace SandHouse.Player
             if (input.JumpPressed) lastJumpPressedTime = Time.time;
             if (input.CrouchPressed && !IsGrounded) lastAirCrouchPressTime = Time.time;
             UpdateDeadEyeTimer();
+            RechargeDashes(dt);
 
             if (IsMantling)
             {
@@ -137,11 +148,13 @@ namespace SandHouse.Player
 
             if (TryLasso()) return;
             TryDeadEyeDive();
+            TryDash();
             TryStartSlam();
             UpdateSlideState();
             UpdateCrouch(dt);
 
-            if (IsSliding) UpdateSlideVelocity(dt);
+            if (IsDashing) UpdateDashVelocity(dt);
+            else if (IsSliding) UpdateSlideVelocity(dt);
             else if (IsRolling) UpdateRollVelocity(dt);
             else if (!IsSlamming && !IsDiving) UpdateHorizontal(dt);
 
@@ -167,6 +180,8 @@ namespace SandHouse.Player
             lastGroundedTime = Time.time;
             wallBouncesUsed = 0;
             recoilHopsUsed = 0;
+            if (justLanded) landedTime = Time.time;
+            UpdateBhopChain();
 
             if (justLanded)
             {
@@ -199,9 +214,7 @@ namespace SandHouse.Player
             Vector2 move = input.Move;
             Vector3 wishDir = Vector3.ClampMagnitude(transform.right * move.x + transform.forward * move.y, 1f);
 
-            // You can only sprint while moving mostly forward.
-            IsSprinting = input.SprintHeld && !IsCrouching && move.y > 0.5f && Mathf.Abs(move.x) < 0.75f;
-            float baseSpeed = IsCrouching ? crouchSpeed : IsSprinting ? sprintSpeed : walkSpeed;
+            float baseSpeed = IsCrouching ? crouchSpeed : runSpeed;
             float maxSpeed = baseSpeed * DirectionalMultiplier(move) * StumbleMultiplier;
 
             if (!IsGrounded)
@@ -210,16 +223,38 @@ namespace SandHouse.Player
                 return;
             }
 
-            // Landing straight into a buffered jump: skip ground friction so bunny hops keep their speed.
-            if (GroundJumpQueued) return;
-
             float current = horizontalVelocity.magnitude;
-            float accel;
-            if (current > maxSpeed + 0.1f) accel = overspeedDeceleration;
-            else if (wishDir.sqrMagnitude < 0.01f) accel = groundDeceleration;
-            else accel = current >= walkSpeed * 0.95f && maxSpeed > walkSpeed ? sprintAcceleration : groundAcceleration;
 
-            horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, wishDir * maxSpeed, accel * dt);
+            // Landing into a jump, or inside the bunny hop window: skip ground friction so hops keep their speed.
+            if (GroundJumpQueued || (InBhopWindow && current > maxSpeed)) return;
+
+            // No input: slow down.
+            if (wishDir.sqrMagnitude < 0.01f)
+            {
+                float decel = current > maxSpeed + 0.1f ? overspeedDeceleration : groundDeceleration;
+                horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, Vector3.zero, decel * dt);
+                return;
+            }
+
+            Vector3 wishNormal = wishDir.normalized;
+            float targetSpeed = maxSpeed * wishDir.magnitude;
+
+            // From standstill, or reversing direction: plain acceleration (brakes through zero).
+            if (current < 0.5f || Vector3.Angle(horizontalVelocity, wishNormal) > reverseAngle)
+            {
+                horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, wishDir * maxSpeed, groundAcceleration * dt);
+                return;
+            }
+
+            // Turning: rotate the running direction towards the input separately from speed changes,
+            // so you can steer at speed instead of sliding around like a car.
+            Vector3 dir = horizontalVelocity / current;
+            float turnRate = (current > runSpeed + 0.5f ? fastTurnRate : groundTurnRate) * Mathf.Deg2Rad * dt;
+            Vector3 newDir = Vector3.RotateTowards(dir, wishNormal, turnRate, 0f);
+            float speed = current * (1f - turnSpeedLoss * Vector3.Angle(dir, newDir) / 90f);
+
+            float accel = speed > targetSpeed + 0.1f ? overspeedDeceleration : groundAcceleration;
+            horizontalVelocity = newDir * Mathf.MoveTowards(speed, targetSpeed, accel * dt);
         }
 
         float DirectionalMultiplier(Vector2 move)
@@ -231,7 +266,7 @@ namespace SandHouse.Player
         }
 
         bool GroundJumpQueued =>
-            Time.time - lastJumpPressedTime <= jumpBufferTime &&
+            (Time.time - lastJumpPressedTime <= jumpBufferTime || AutoHopQueued) &&
             Time.time - lastGroundedTime <= coyoteTime &&
             (!IsCrouching || IsSliding || IsRolling);
 
@@ -243,8 +278,10 @@ namespace SandHouse.Player
             }
             else if (GroundJumpQueued)
             {
+                if (IsDashing) EndDash(dashJumpSpeed); // dash jump: keep extra speed
                 if (IsSliding) EndSlide(); // slide jump: horizontal speed is kept
                 rollTimer = 0f;            // roll jump: same
+                ApplyBunnyHop();
                 verticalVelocity = Mathf.Sqrt(2f * gravity * jumpHeight);
                 lastJumpPressedTime = float.NegativeInfinity;
                 lastGroundedTime = float.NegativeInfinity;
@@ -262,7 +299,8 @@ namespace SandHouse.Player
                 isJumping = false;
             }
 
-            verticalVelocity -= gravity * dt;
+            if (IsDashing && !IsGrounded) verticalVelocity = 0f; // air dashes hold your height
+            else verticalVelocity -= gravity * dt;
             if (IsSlamming) verticalVelocity = Mathf.Min(verticalVelocity, -slamSpeed);
         }
 
@@ -326,6 +364,7 @@ namespace SandHouse.Player
             IsSliding = false;
             IsSlamming = false;
             IsDiving = false;
+            dashTimer = 0f;
             rollTimer = 0f;
             stumbleTimer = 0f;
             StopDeadEye();

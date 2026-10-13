@@ -25,7 +25,7 @@ namespace SandHouse.Player
         [Tooltip("Speed multiplier when you let go.")]
         [SerializeField] float lassoReleaseBoost = 1.1f;
         [SerializeField] float lassoJumpUpSpeed = 6f;
-        [SerializeField] float lassoMaxSwingSpeed = 30f;
+        [SerializeField] float lassoMaxSwingSpeed = 38f;
         [SerializeField] float lassoCooldown = 0.35f;
         [Tooltip("Speed loose objects are yanked towards you.")]
         [SerializeField] float lassoObjectPullSpeed = 14f;
@@ -73,6 +73,7 @@ namespace SandHouse.Player
                 return false;
             }
 
+            if (IsDashing) EndDash();
             anchorBody = hit.transform;
             anchorLocal = hit.transform.InverseTransformPoint(hit.point);
             ropeLength = Mathf.Max(lassoMinLength, Vector3.Distance(GripPoint, hit.point));

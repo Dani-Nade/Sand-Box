@@ -27,7 +27,7 @@ namespace SandHouse.UI
         const float CalloutDuration = 0.9f;
 
         Font font;
-        Text ammoText, healthText, statsText, calloutText, deadEyeText;
+        Text ammoText, healthText, statsText, calloutText, deadEyeText, dashText;
         Image deadEyeOverlay;
         Image[] hitmarker;
         float hitmarkerTimer, calloutTimer, fpsSmoothed;
@@ -48,6 +48,7 @@ namespace SandHouse.UI
             motor.Slammed += OnSlammed;
             motor.SlamJumped += OnSlamJumped;
             motor.RecoilHopped += OnRecoilHopped;
+            motor.BunnyHopped += OnBunnyHopped;
         }
 
         void OnDisable()
@@ -60,6 +61,7 @@ namespace SandHouse.UI
             motor.Slammed -= OnSlammed;
             motor.SlamJumped -= OnSlamJumped;
             motor.RecoilHopped -= OnRecoilHopped;
+            motor.BunnyHopped -= OnBunnyHopped;
         }
 
         void OnMantleSlideAttempted(bool success) => Callout(success ? "MANTLE SLIDE" : "TOO EARLY", success ? GoodColor : BadColor);
@@ -68,6 +70,11 @@ namespace SandHouse.UI
         void OnSlammed(float height) => Callout($"SLAM  {height:0.0} m", GoodColor);
         void OnSlamJumped(float extra) => Callout($"SLAM JUMP  +{extra:0.0} m", GoodColor);
         void OnRecoilHopped() => Callout($"RECOIL HOP  ({motor.RecoilHopsLeft} left)", Color.white);
+
+        void OnBunnyHopped(int chain)
+        {
+            if (chain >= 2) Callout($"BHOP x{chain}   {motor.HorizontalSpeed:0.0} m/s", chain >= 5 ? GoodColor : Color.white);
+        }
 
         void Callout(string text, Color color)
         {
@@ -93,6 +100,7 @@ namespace SandHouse.UI
                 float charge = motor.DeadEyeCharge01;
                 deadEyeText.text = motor.IsDeadEye ? "DEAD EYE" : charge >= 1f ? "DEAD EYE READY  [F]" : $"DEAD EYE  {charge * 100f:0}%";
                 deadEyeText.color = motor.IsDeadEye || charge >= 1f ? GoodColor : new Color(1f, 1f, 1f, 0.5f);
+                dashText.text = DashMeter();
             }
 
             if (showMovementStats && motor != null)
@@ -100,7 +108,7 @@ namespace SandHouse.UI
                 fpsSmoothed = Mathf.Lerp(fpsSmoothed, 1f / Mathf.Max(dt, 0.0001f), 0.05f);
                 statsText.text =
                     $"Speed {motor.HorizontalSpeed:0.0} m/s\nVert {motor.Velocity.y:0.0} m/s\n{StateName()}\n" +
-                    $"Wall bounces {motor.MaxWallBounces - motor.WallBouncesUsed}/{motor.MaxWallBounces}   Recoil hops {motor.RecoilHopsLeft}\n" +
+                    $"Wall bounces {motor.MaxWallBounces - motor.WallBouncesUsed}/{motor.MaxWallBounces}   Recoil hops {motor.RecoilHopsLeft}   Bhop x{motor.BunnyHopChain}\n" +
                     $"{fpsSmoothed:0} fps";
             }
 
@@ -119,8 +127,21 @@ namespace SandHouse.UI
             }
         }
 
+        /// <summary>"DASH ●●○" - filled dots are ready charges, the partly refilled one shows a percentage.</summary>
+        string DashMeter()
+        {
+            int full = Mathf.FloorToInt(motor.DashCharge);
+            var meter = new System.Text.StringBuilder("DASH  ");
+            for (int i = 0; i < motor.MaxDashCharges; i++)
+                meter.Append(i < full ? "● " : "○ ");
+            if (full < motor.MaxDashCharges)
+                meter.Append($" {(motor.DashCharge - full) * 100f:0}%");
+            return meter.ToString();
+        }
+
         string StateName()
         {
+            if (motor.IsDashing) return "DASH";
             if (motor.IsSwinging) return "SWING";
             if (motor.IsMantling) return "MANTLE";
             if (motor.IsSlamming) return "SLAM";
@@ -131,7 +152,7 @@ namespace SandHouse.UI
             if (!motor.IsGrounded) return "AIR";
             if (motor.IsStumbling) return "STUMBLE";
             if (motor.IsCrouching) return "CROUCH";
-            return motor.IsSprinting ? "SPRINT" : "GROUND";
+            return motor.HorizontalSpeed > 0.5f ? "RUN" : "GROUND";
         }
 
         void OnHit(HitResult hit)
@@ -180,6 +201,7 @@ namespace SandHouse.UI
             ammoText = CreateText(root, "Ammo", new Vector2(1, 0), new Vector2(-60, 50), 44, TextAnchor.LowerRight);
             healthText = CreateText(root, "Health", new Vector2(0, 0), new Vector2(60, 50), 36, TextAnchor.LowerLeft);
             deadEyeText = CreateText(root, "Dead Eye", new Vector2(0.5f, 0), new Vector2(0, 40), 24, TextAnchor.LowerCenter);
+            dashText = CreateText(root, "Dash", new Vector2(0.5f, 0), new Vector2(0, 75), 28, TextAnchor.LowerCenter);
             statsText = CreateText(root, "Stats", new Vector2(0, 1), new Vector2(30, -30), 22, TextAnchor.UpperLeft);
             statsText.gameObject.SetActive(showMovementStats);
 
@@ -188,13 +210,15 @@ namespace SandHouse.UI
 
             var help = CreateText(root, "Controls", new Vector2(1, 1), new Vector2(-30, -30), 19, TextAnchor.UpperRight);
             help.text =
-                "WASD move   Shift sprint   Space jump   Ctrl crouch   LMB shoot   R reload   Esc cursor\n" +
-                "Sprint + hold Ctrl = slide      Jump into ledge + W = mantle\n" +
+                "WASD move   Shift dash (3 charges, works in the air)   Space jump   Ctrl crouch\n" +
+                "LMB shoot   R reload   Esc cursor      Dash + Space = dash jump\n" +
+                "Run/dash + hold Ctrl = slide      Jump into ledge + W = mantle\n" +
                 "Ctrl at the END of a mantle = mantle slide\n" +
                 "Space near wall in air = wall bounce      A/D + turn in air = air strafe\n" +
                 "Hold Q = lasso (Space = lasso jump)      F = Dead Eye dive\n" +
                 "Ctrl high in the air = slam (Space on landing = slam jump)\n" +
-                "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop";
+                "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop\n" +
+                "Jump again right as you land = bunny hop (keeps speed, chains add speed)";
             help.color = new Color(1f, 1f, 1f, 0.6f);
             ((RectTransform)help.transform).sizeDelta = new Vector2(1000, 260);
         }

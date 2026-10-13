@@ -27,10 +27,10 @@ namespace SandHouse.Player
         [Header("Mantle Slide")]
         [SerializeField] bool enableMantleSlide = true;
         [Tooltip("You need at least this much speed going into the mantle for it to become a slide.")]
-        [SerializeField] float mantleSlideMinSpeed = 5f;
+        [SerializeField] float mantleSlideMinSpeed = 7f;
         [Tooltip("Bigger than a normal slide's boost, and it ignores the slide boost cooldown.")]
-        [SerializeField] float mantleSlideBoost = 5.5f;
-        [SerializeField] float mantleSlideMaxBoostedSpeed = 16f;
+        [SerializeField] float mantleSlideBoost = 7f;
+        [SerializeField] float mantleSlideMaxBoostedSpeed = 22f;
         [Tooltip("Timing window opens at this fraction of the climb (0.65 = the last 35%). Pressing before it fails.")]
         [SerializeField, Range(0f, 1f)] float mantleSlideWindowStart = 0.65f;
         [Tooltip("Seconds after the climb finishes where a crouch press still counts.")]
@@ -111,10 +111,10 @@ namespace SandHouse.Player
 
         void StartMantle(Vector3 end, Vector3 direction, float ledgeHeight, bool endCrouched)
         {
+            if (IsDashing) EndDash();
             IsMantling = true;
             IsGrounded = false;
             IsSliding = false;
-            IsSprinting = false;
 
             mantleStart = transform.position;
             mantleEnd = end;
@@ -177,7 +177,7 @@ namespace SandHouse.Player
                 SetHeight(crouchingHeight);
             }
 
-            horizontalVelocity = mantleDirection * Mathf.Min(mantleEntrySpeed, walkSpeed);
+            horizontalVelocity = mantleDirection * Mathf.Min(mantleEntrySpeed, runSpeed);
 
             bool canMantleSlide = enableMantleSlide && enableSlide && mantleEntrySpeed >= mantleSlideMinSpeed;
             if (canMantleSlide && mantleSlideTimed)

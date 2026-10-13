@@ -5,7 +5,7 @@ namespace SandHouse.Player
 {
     /// <summary>
     /// Procedural camera motion: head bob synced to footsteps, strafe/slide tilt, landing dips,
-    /// a forward flip on landing rolls, slam punches and FOV changes (sprint, slide, swing, Dead Eye).
+    /// a forward flip on landing rolls, slam/dash punches and FOV changes (speed, slide, swing, Dead Eye).
     /// Sits on a transform between CameraRoot and the camera, so it stacks on top of crouch height and look.
     /// WeaponSway reads <see cref="Phase"/> / <see cref="Weight"/> so the gun bobs in sync.
     /// </summary>
@@ -18,14 +18,14 @@ namespace SandHouse.Player
 
         [Header("Bob")]
         [Tooltip("Metres travelled per full bob cycle (two footsteps).")]
-        [SerializeField] float walkCycleLength = 2.1f;
-        [SerializeField] float sprintCycleLength = 2.6f;
+        [SerializeField] float cycleLength = 3.6f;
         [SerializeField] float verticalAmplitude = 0.04f;
         [SerializeField] float horizontalAmplitude = 0.025f;
-        [SerializeField] float sprintAmplitudeMultiplier = 1.5f;
+        [Tooltip("Bob strength multiplier when moving faster than run speed.")]
+        [SerializeField] float fastAmplitudeMultiplier = 1.4f;
         [SerializeField] float crouchAmplitudeMultiplier = 0.6f;
         [Tooltip("Speed at which the bob reaches full strength.")]
-        [SerializeField] float fullBobSpeed = 5f;
+        [SerializeField] float fullBobSpeed = 9f;
         [SerializeField] float weightSmoothing = 10f;
 
         [Header("Tilt")]
@@ -53,10 +53,14 @@ namespace SandHouse.Player
         [SerializeField] float slamImpulse = 2.5f;
         [SerializeField] float slamFovPunch = 12f;
 
+        [Header("Dash")]
+        [SerializeField] float dashFovPunch = 9f;
+
         [Header("FOV")]
-        [SerializeField] float sprintFovIncrease = 7f;
         [SerializeField] float slideFovIncrease = 10f;
-        [Tooltip("FOV added per m/s above 10 m/s while swinging or flying.")]
+        [Tooltip("Speed FOV starts this many m/s above run speed.")]
+        [SerializeField] float speedFovThresholdAboveRun = 4f;
+        [Tooltip("FOV added per m/s above the threshold (any movement).")]
         [SerializeField] float speedFovPerMetre = 0.6f;
         [SerializeField] float maxSpeedFov = 14f;
         [Tooltip("Negative = zoom in during Dead Eye.")]
@@ -95,6 +99,7 @@ namespace SandHouse.Player
             motor.HardLanded += OnHardLanded;
             motor.Rolled += OnRolled;
             motor.Slammed += OnSlammed;
+            motor.Dashed += OnDashed;
         }
 
         void OnDisable()
@@ -104,7 +109,10 @@ namespace SandHouse.Player
             motor.HardLanded -= OnHardLanded;
             motor.Rolled -= OnRolled;
             motor.Slammed -= OnSlammed;
+            motor.Dashed -= OnDashed;
         }
+
+        void OnDashed() => fovPunch += dashFovPunch;
 
         void OnLanded(float impactSpeed)
         {
@@ -135,7 +143,6 @@ namespace SandHouse.Player
 
             if (motor.IsGrounded)
             {
-                float cycleLength = motor.IsSprinting ? sprintCycleLength : walkCycleLength;
                 Phase = Mathf.Repeat(Phase + speed / cycleLength * Mathf.PI * 2f * dt, Mathf.PI * 2f);
             }
 
@@ -145,7 +152,8 @@ namespace SandHouse.Player
                 Footstep?.Invoke();
             previousStepSignal = stepSignal;
 
-            float amplitude = motor.IsCrouching ? crouchAmplitudeMultiplier : motor.IsSprinting ? sprintAmplitudeMultiplier : 1f;
+            bool fast = speed > motor.RunSpeed + 0.5f;
+            float amplitude = motor.IsCrouching ? crouchAmplitudeMultiplier : fast ? fastAmplitudeMultiplier : 1f;
             Vector3 bob = BobOffset(Phase, horizontalAmplitude, verticalAmplitude) * (amplitude * Weight);
 
             // Landing spring.
@@ -176,12 +184,9 @@ namespace SandHouse.Player
         {
             if (targetCamera == null) return;
 
-            float boost = 0f;
-            if (motor.IsSliding) boost = slideFovIncrease;
-            else if (motor.IsSprinting && motor.IsGrounded && speed > motor.WalkSpeed + 0.5f) boost = sprintFovIncrease;
-
-            if (!motor.IsGrounded || motor.IsSwinging)
-                boost = Mathf.Max(boost, Mathf.Clamp((motor.Velocity.magnitude - 10f) * speedFovPerMetre, 0f, maxSpeedFov));
+            float boost = motor.IsSliding ? slideFovIncrease : 0f;
+            float threshold = motor.RunSpeed + speedFovThresholdAboveRun;
+            boost = Mathf.Max(boost, Mathf.Clamp((motor.Velocity.magnitude - threshold) * speedFovPerMetre, 0f, maxSpeedFov));
             if (motor.IsDeadEye) boost += deadEyeFovChange;
 
             fovPunch = Mathf.Lerp(fovPunch, 0f, 1f - Mathf.Exp(-fovPunchRecovery * dt));

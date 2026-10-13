@@ -27,6 +27,7 @@ namespace SandHouse.Player
         {
             if (!enableRecoilHop || IsGrounded || IsMantling || recoilHopsUsed >= maxRecoilHops) return false;
 
+            if (IsDashing) EndDash();
             Vector3 push = -aimDirection.normalized * recoilHopSpeed;
             Vector3 horizontalPush = new Vector3(push.x, 0f, push.z) * recoilHopHorizontalScale;
 
