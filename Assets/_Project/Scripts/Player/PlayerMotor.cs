@@ -1,0 +1,340 @@
+using System;
+using SandHouse.Combat;
+using UnityEngine;
+
+namespace SandHouse.Player
+{
+    /// <summary>
+    /// First-person movement on a CharacterController. The transform's pivot is at the player's feet.
+    ///
+    /// Split into partial files, one per movement feature:
+    ///   PlayerMotor.cs            core: walk/sprint/crouch/jump, grounding, collision
+    ///   PlayerMotor.Landing.cs    hard landings, fall damage, landing roll
+    ///   PlayerMotor.Slide.cs      sliding
+    ///   PlayerMotor.Mantle.cs     mantling + timed mantle slide
+    ///   PlayerMotor.WallBounce.cs
+    ///   PlayerMotor.AirStrafe.cs
+    ///   PlayerMotor.Lasso.cs      lasso swing / yank
+    ///   PlayerMotor.DeadEye.cs    slow-motion dive
+    ///   PlayerMotor.Slam.cs       ground slam + slam jump
+    ///   PlayerMotor.RecoilHop.cs  revolver recoil boosts in the air
+    /// </summary>
+    [RequireComponent(typeof(CharacterController), typeof(PlayerInputReader))]
+    public partial class PlayerMotor : MonoBehaviour
+    {
+        [Header("References")]
+        [SerializeField] Transform cameraRoot;
+        [Tooltip("Where aimed abilities (lasso) shoot from. Defaults to the main camera.")]
+        [SerializeField] Transform aimTransform;
+
+        [Header("Speed (m/s)")]
+        [SerializeField] float walkSpeed = 5f;
+        [SerializeField] float sprintSpeed = 8.5f;
+        [SerializeField] float crouchSpeed = 2.5f;
+        [Tooltip("Speed multiplier when moving backwards.")]
+        [SerializeField, Range(0.1f, 1f)] float backwardSpeedMultiplier = 0.65f;
+        [Tooltip("Speed multiplier when strafing sideways.")]
+        [SerializeField, Range(0.1f, 1f)] float strafeSpeedMultiplier = 0.85f;
+
+        [Header("Acceleration (m/s²)")]
+        [SerializeField] float groundAcceleration = 40f;
+        [SerializeField] float groundDeceleration = 35f;
+        [Tooltip("Acceleration from walking speed up to sprint speed (sprint wind-up).")]
+        [SerializeField] float sprintAcceleration = 14f;
+        [Tooltip("Slowdown when moving faster than your normal top speed on the ground (after slides, bounces). Lower = keep momentum longer.")]
+        [SerializeField] float overspeedDeceleration = 10f;
+        [Tooltip("Air control used while slower than walking speed. Above that, air strafing rules apply.")]
+        [SerializeField] float airAcceleration = 10f;
+
+        [Header("Jump")]
+        [SerializeField] float jumpHeight = 1.2f;
+        [SerializeField] float gravity = 25f;
+        [Tooltip("Grace period after walking off a ledge where jumping still works.")]
+        [SerializeField] float coyoteTime = 0.12f;
+        [Tooltip("Jump presses this long before landing still count.")]
+        [SerializeField] float jumpBufferTime = 0.12f;
+        [Tooltip("Releasing jump early multiplies upward speed by this (lower = shorter tap jumps).")]
+        [SerializeField, Range(0f, 1f)] float jumpCutMultiplier = 0.5f;
+
+        [Header("Crouch")]
+        [SerializeField] float standingHeight = 1.8f;
+        [SerializeField] float crouchingHeight = 1.1f;
+        [SerializeField] float crouchTransitionSpeed = 10f;
+        [SerializeField] float eyeOffsetFromTop = 0.15f;
+
+        [Header("Collision")]
+        [Tooltip("Layers that count as solid for crouching, mantling, wall bounces, lasso and slams.")]
+        [SerializeField] LayerMask obstructionMask = ~(1 << 2);
+
+        CharacterController controller;
+        PlayerInputReader input;
+        Health selfHealth;
+
+        Vector3 horizontalVelocity;
+        float verticalVelocity;
+        float lastGroundedTime = float.NegativeInfinity;
+        float lastJumpPressedTime = float.NegativeInfinity;
+        bool isJumping;
+        bool justLanded;
+        Vector3 groundNormal = Vector3.up;
+
+        // Speed right before we last ran into a wall - hitting a ledge's wall shouldn't erase mantle-slide speed.
+        float speedBeforeWallHit;
+        float wallHitTime = float.NegativeInfinity;
+
+        public Vector3 Velocity => horizontalVelocity + Vector3.up * verticalVelocity;
+        public float HorizontalSpeed => horizontalVelocity.magnitude;
+        public float WalkSpeed => walkSpeed;
+        public bool IsGrounded { get; private set; }
+        public bool IsCrouching { get; private set; }
+        public bool IsSprinting { get; private set; }
+
+        public event Action Jumped;
+        public event Action<float> Landed; // impact speed (m/s, positive)
+
+        Transform Aim => aimTransform != null ? aimTransform : Camera.main != null ? Camera.main.transform : transform;
+        Vector3 FlatForward
+        {
+            get
+            {
+                Vector3 f = transform.forward;
+                f.y = 0f;
+                return f.normalized;
+            }
+        }
+
+        void Awake()
+        {
+            controller = GetComponent<CharacterController>();
+            input = GetComponent<PlayerInputReader>();
+            selfHealth = GetComponent<Health>();
+            SetHeight(standingHeight);
+        }
+
+        void OnDisable() => StopDeadEye();
+
+        void Update()
+        {
+            float dt = Time.deltaTime;
+
+            if (input.JumpPressed) lastJumpPressedTime = Time.time;
+            if (input.CrouchPressed && !IsGrounded) lastAirCrouchPressTime = Time.time;
+            UpdateDeadEyeTimer();
+
+            if (IsMantling)
+            {
+                UpdateMantle(dt);
+                return;
+            }
+            if (IsSwinging)
+            {
+                UpdateLasso(dt);
+                return;
+            }
+
+            UpdateGrounded();
+            UpdateLandingTimers(dt);
+
+            if (TryLasso()) return;
+            TryDeadEyeDive();
+            TryStartSlam();
+            UpdateSlideState();
+            UpdateCrouch(dt);
+
+            if (IsSliding) UpdateSlideVelocity(dt);
+            else if (IsRolling) UpdateRollVelocity(dt);
+            else if (!IsSlamming && !IsDiving) UpdateHorizontal(dt);
+
+            UpdateVertical(dt);
+            Move(dt);
+
+            if (!IsGrounded && !IsSlamming && !IsDiving)
+                TryStartMantle();
+        }
+
+        void UpdateGrounded()
+        {
+            bool wasGrounded = IsGrounded;
+            IsGrounded = controller.isGrounded;
+            justLanded = IsGrounded && !wasGrounded;
+
+            if (!IsGrounded)
+            {
+                groundNormal = Vector3.up;
+                return;
+            }
+
+            lastGroundedTime = Time.time;
+            wallBouncesUsed = 0;
+            recoilHopsUsed = 0;
+
+            if (justLanded)
+            {
+                float impact = -verticalVelocity;
+                HandleLanding(impact);
+                Landed?.Invoke(impact);
+            }
+
+            if (verticalVelocity < 0f)
+            {
+                verticalVelocity = -2f; // keeps the controller snapped to slopes and steps
+                isJumping = false;
+            }
+        }
+
+        void UpdateCrouch(float dt)
+        {
+            bool wantsCrouch = input.CrouchHeld || IsSliding || IsRolling || IsDiving;
+            if (!wantsCrouch && IsCrouching && !CanStandUp())
+                wantsCrouch = true;
+            IsCrouching = wantsCrouch;
+
+            float target = IsCrouching ? crouchingHeight : standingHeight;
+            if (!Mathf.Approximately(controller.height, target))
+                SetHeight(Mathf.MoveTowards(controller.height, target, crouchTransitionSpeed * dt));
+        }
+
+        void UpdateHorizontal(float dt)
+        {
+            Vector2 move = input.Move;
+            Vector3 wishDir = Vector3.ClampMagnitude(transform.right * move.x + transform.forward * move.y, 1f);
+
+            // You can only sprint while moving mostly forward.
+            IsSprinting = input.SprintHeld && !IsCrouching && move.y > 0.5f && Mathf.Abs(move.x) < 0.75f;
+            float baseSpeed = IsCrouching ? crouchSpeed : IsSprinting ? sprintSpeed : walkSpeed;
+            float maxSpeed = baseSpeed * DirectionalMultiplier(move) * StumbleMultiplier;
+
+            if (!IsGrounded)
+            {
+                AirMove(wishDir, maxSpeed * wishDir.magnitude, dt);
+                return;
+            }
+
+            // Landing straight into a buffered jump: skip ground friction so bunny hops keep their speed.
+            if (GroundJumpQueued) return;
+
+            float current = horizontalVelocity.magnitude;
+            float accel;
+            if (current > maxSpeed + 0.1f) accel = overspeedDeceleration;
+            else if (wishDir.sqrMagnitude < 0.01f) accel = groundDeceleration;
+            else accel = current >= walkSpeed * 0.95f && maxSpeed > walkSpeed ? sprintAcceleration : groundAcceleration;
+
+            horizontalVelocity = Vector3.MoveTowards(horizontalVelocity, wishDir * maxSpeed, accel * dt);
+        }
+
+        float DirectionalMultiplier(Vector2 move)
+        {
+            if (move.sqrMagnitude < 0.01f) return 1f;
+            Vector2 n = move.normalized;
+            float multiplier = Mathf.Lerp(1f, strafeSpeedMultiplier, Mathf.Abs(n.x));
+            return Mathf.Lerp(multiplier, backwardSpeedMultiplier, Mathf.Clamp01(-n.y));
+        }
+
+        bool GroundJumpQueued =>
+            Time.time - lastJumpPressedTime <= jumpBufferTime &&
+            Time.time - lastGroundedTime <= coyoteTime &&
+            (!IsCrouching || IsSliding || IsRolling);
+
+        void UpdateVertical(float dt)
+        {
+            if (TrySlamJump())
+            {
+                // handled
+            }
+            else if (GroundJumpQueued)
+            {
+                if (IsSliding) EndSlide(); // slide jump: horizontal speed is kept
+                rollTimer = 0f;            // roll jump: same
+                verticalVelocity = Mathf.Sqrt(2f * gravity * jumpHeight);
+                lastJumpPressedTime = float.NegativeInfinity;
+                lastGroundedTime = float.NegativeInfinity;
+                isJumping = true;
+                Jumped?.Invoke();
+            }
+            else if (input.JumpPressed && !IsGrounded && TryWallBounce())
+            {
+                lastJumpPressedTime = float.NegativeInfinity;
+            }
+
+            if (isJumping && verticalVelocity > 0f && !input.JumpHeld)
+            {
+                verticalVelocity *= jumpCutMultiplier;
+                isJumping = false;
+            }
+
+            verticalVelocity -= gravity * dt;
+            if (IsSlamming) verticalVelocity = Mathf.Min(verticalVelocity, -slamSpeed);
+        }
+
+        void Move(float dt)
+        {
+            Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
+
+            // On the ground, run along the surface so we follow slopes instead of launching off them.
+            if (IsGrounded && verticalVelocity <= 0f && horizontalVelocity.sqrMagnitude > 0.0001f)
+            {
+                Vector3 along = Vector3.ProjectOnPlane(horizontalVelocity, groundNormal).normalized * horizontalVelocity.magnitude;
+                velocity = along + Vector3.up * verticalVelocity;
+            }
+
+            CollisionFlags flags = controller.Move(velocity * dt);
+
+            if ((flags & CollisionFlags.Above) != 0 && verticalVelocity > 0f)
+                verticalVelocity = 0f;
+
+            // Lose speed into walls instead of keeping it "stored" while pressed against them.
+            if ((flags & CollisionFlags.Sides) != 0)
+            {
+                if (Time.time - wallHitTime > 0.3f || horizontalVelocity.magnitude > speedBeforeWallHit)
+                    speedBeforeWallHit = horizontalVelocity.magnitude;
+                wallHitTime = Time.time;
+                Vector3 actual = controller.velocity;
+                horizontalVelocity = Vector3.ClampMagnitude(new Vector3(actual.x, 0f, actual.z), horizontalVelocity.magnitude);
+            }
+        }
+
+        void OnControllerColliderHit(ControllerColliderHit hit)
+        {
+            // Remember the surface we're standing on (used for slope following and slide acceleration).
+            if (hit.normal.y > 0.5f && hit.point.y < transform.position.y + controller.radius)
+                groundNormal = hit.normal;
+        }
+
+        bool CanStandUp() => !CapsuleBlocked(transform.position, standingHeight);
+
+        bool CapsuleBlocked(Vector3 feet, float height)
+        {
+            float radius = controller.radius * 0.95f;
+            Vector3 bottom = feet + Vector3.up * (controller.radius + 0.05f);
+            Vector3 top = feet + Vector3.up * (height - controller.radius);
+            return Physics.CheckCapsule(bottom, top, radius, obstructionMask, QueryTriggerInteraction.Ignore);
+        }
+
+        void SetHeight(float height)
+        {
+            controller.height = height;
+            controller.center = new Vector3(0f, height * 0.5f, 0f);
+            if (cameraRoot != null)
+                cameraRoot.localPosition = new Vector3(0f, height - eyeOffsetFromTop, 0f);
+        }
+
+        /// <summary>Instantly moves the player, clearing all momentum and movement states.</summary>
+        public void Teleport(Vector3 position, Quaternion rotation)
+        {
+            if (IsMantling) CancelMantle();
+            if (IsSwinging) DetachLasso();
+            IsSliding = false;
+            IsSlamming = false;
+            IsDiving = false;
+            rollTimer = 0f;
+            stumbleTimer = 0f;
+            StopDeadEye();
+
+            controller.enabled = false;
+            transform.SetPositionAndRotation(position, rotation);
+            controller.enabled = true;
+            horizontalVelocity = Vector3.zero;
+            verticalVelocity = 0f;
+        }
+    }
+}
