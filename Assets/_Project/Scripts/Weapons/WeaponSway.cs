@@ -68,7 +68,7 @@ namespace SandHouse.Weapons
         [SerializeField] float mantleBlendSpeed = 14f;
 
         PlayerInputReader input;
-        Revolver weapon;
+        WeaponInventory weapons;
         Vector3 restPosition;
         Quaternion restRotation;
 
@@ -81,7 +81,7 @@ namespace SandHouse.Weapons
         void Awake()
         {
             input = GetComponentInParent<PlayerInputReader>();
-            weapon = GetComponentInChildren<Revolver>();
+            weapons = GetComponent<WeaponInventory>();
             restPosition = transform.localPosition;
             restRotation = transform.localRotation;
         }
@@ -89,13 +89,13 @@ namespace SandHouse.Weapons
         void OnEnable()
         {
             if (motor != null) motor.Landed += OnLanded;
-            if (weapon != null) weapon.Fired += OnFired;
+            if (weapons != null) weapons.Fired += OnFired;
         }
 
         void OnDisable()
         {
             if (motor != null) motor.Landed -= OnLanded;
-            if (weapon != null) weapon.Fired -= OnFired;
+            if (weapons != null) weapons.Fired -= OnFired;
         }
 
         void OnLanded(float impactSpeed)

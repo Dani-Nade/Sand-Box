@@ -1,0 +1,46 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 72fa91bed1ac126428d3179f72ee2f51, type: 3}
+  m_Name: WD_Shotgun
+  m_EditorClassIdentifier: SandHouse::SandHouse.Weapons.WeaponData
+  displayName: Shotgun
+  description: Double-barrel. Devastating up close, two shells. Shoot the ground mid-air for a shotgun jump.
+  automatic: 0
+  fireInterval: 0.3
+  damage: 9
+  pellets: 10
+  spreadAngle: 6
+  range: 60
+  impactForce: 4
+  falloffStart: 8
+  falloffEnd: 25
+  minDamageMultiplier: 0.25
+  magazineSize: 2
+  reloadOneAtATime: 0
+  reloadTime: 1.4
+  roundReloadTime: 0.45
+  autoReloadWhenEmpty: 1
+  reloadStyle: 1
+  cycleTime: 0
+  recoilPitch: 7
+  recoilYawRandom: 1.5
+  modelKickDistance: 0.14
+  modelKickAngle: 18
+  modelRecoverySpeed: 9
+  recoilHopMultiplier: 2.2
+  deadEyeFireIntervalMultiplier: 0.6
+  throwSpeed: 18
+  throwUpSpeed: 4
+  fuseTime: 1.6
+  explosionRadius: 5
+  explosionKnockback: 14
+  selfKnockback: 13

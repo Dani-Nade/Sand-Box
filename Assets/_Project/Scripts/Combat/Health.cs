@@ -14,6 +14,9 @@ namespace SandHouse.Combat
         public event Action<DamageInfo> Damaged;
         public event Action Died;
 
+        /// <summary>Fires whenever anything with a Health dies, with the hit that killed it (used for kill rewards).</summary>
+        public static event Action<Health, DamageInfo> AnyKilled;
+
         void Awake() => Current = maxHealth;
 
         public bool TakeDamage(DamageInfo info)
@@ -25,6 +28,7 @@ namespace SandHouse.Combat
 
             if (!IsDead) return false;
             Died?.Invoke();
+            AnyKilled?.Invoke(this, info);
             return true;
         }
 
@@ -35,5 +39,14 @@ namespace SandHouse.Combat
         }
 
         public void ResetHealth() => Current = maxHealth;
+
+        /// <summary>Changes max health. Raising it also heals by the amount gained.</summary>
+        public void SetMaxHealth(float newMax)
+        {
+            newMax = Mathf.Max(1f, newMax);
+            float gained = newMax - maxHealth;
+            maxHealth = newMax;
+            Current = Mathf.Clamp(Current + Mathf.Max(0f, gained), 0f, maxHealth);
+        }
     }
 }

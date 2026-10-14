@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using SandHouse.Combat;
 using SandHouse.Player;
+using SandHouse.Stats;
 using SandHouse.Targets;
 using SandHouse.UI;
 using SandHouse.Weapons;
@@ -38,6 +39,7 @@ namespace SandHouse.Editor
         class MaterialSet
         {
             public Material Floor, Wall, Obstacle, Accent, Target, TargetHead, Tracer, Impact, GunMetal, GunWood, Rope;
+            public Material Dynamite, Fuse, Explosion;
         }
 
         static MaterialSet mats;
@@ -75,8 +77,8 @@ namespace SandHouse.Editor
             BuildCrazyTech(Group("Crazy Tech", level));
             PlacePrototypeMap(level);
 
-            var player = BuildPlayer(out var motor, out var health, out var revolver);
-            BuildHud(motor, health, revolver);
+            var player = BuildPlayer(out var motor, out var health, out var weapons);
+            BuildHud(motor, health, weapons);
             player.transform.SetAsFirstSibling();
 
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
@@ -142,6 +144,9 @@ namespace SandHouse.Editor
                 GunWood = SolidMaterial("M_Gun_Wood", lit, new Color(0.36f, 0.2f, 0.1f), 0f, 0.35f),
                 Tracer = SolidMaterial("M_Tracer", unlit, new Color(1f, 0.85f, 0.5f), 0f, 0f),
                 Rope = SolidMaterial("M_Rope", unlit, new Color(0.55f, 0.4f, 0.22f), 0f, 0f),
+                Dynamite = SolidMaterial("M_Dynamite", lit, new Color(0.75f, 0.1f, 0.08f), 0f, 0.3f),
+                Fuse = SolidMaterial("M_Fuse", lit, new Color(0.15f, 0.12f, 0.1f), 0f, 0.1f),
+                Explosion = SolidMaterial("M_Explosion", unlit, new Color(1f, 0.55f, 0.15f), 0f, 0f),
             };
         }
 
@@ -484,7 +489,7 @@ namespace SandHouse.Editor
 
         // ------------------------------------------------------------------ player, HUD, targets
 
-        static GameObject BuildPlayer(out PlayerMotor motor, out Health health, out Revolver revolver)
+        static GameObject BuildPlayer(out PlayerMotor motor, out Health health, out WeaponInventory weapons)
         {
             var player = new GameObject("Player") { layer = IgnoreRaycastLayer };
             player.transform.SetPositionAndRotation(SpawnPosition, Quaternion.identity);
@@ -500,6 +505,7 @@ namespace SandHouse.Editor
 
             player.AddComponent<PlayerInputReader>();
             health = player.AddComponent<Health>();
+            player.AddComponent<PlayerStats>();
 
             var cameraRoot = new GameObject("CameraRoot").transform;
             cameraRoot.SetParent(player.transform, false);
@@ -529,11 +535,11 @@ namespace SandHouse.Editor
             SetField(headBob, "motor", motor);
             SetField(headBob, "targetCamera", camera);
 
-            // Main Camera > WeaponHolder (sway/bob/poses) > Revolver (recoil/reload on its model)
+            // Main Camera > WeaponHolder (inventory + sway/bob/poses) > each weapon (recoil/reload on its model)
             var holder = new GameObject("WeaponHolder") { layer = IgnoreRaycastLayer };
             holder.transform.SetParent(cameraGo.transform, false);
 
-            revolver = BuildRevolver(holder.transform, camera);
+            weapons = BuildWeapons(holder.transform, camera);
 
             var sway = holder.AddComponent<WeaponSway>();
             SetField(sway, "motor", motor);
@@ -561,25 +567,196 @@ namespace SandHouse.Editor
             return player;
         }
 
-        static Revolver BuildRevolver(Transform holder, Camera camera)
+        // ------------------------------------------------------------------ weapons
+        // Placeholder models built from primitives. Moving parts are empties named like the real model's
+        // parts will be ("Cylinder", "Lever", "Muzzle") so swapping in a Blender model is drag-and-drop.
+        // Weapon stats live in WeaponData assets, which are only created if missing - tweaks you make
+        // to them in the Inspector survive rebuilds.
+
+        const string WeaponDataFolder = "Assets/_Project/Data/Weapons";
+
+        static WeaponInventory BuildWeapons(Transform holder, Camera camera)
         {
-            var gun = new GameObject("Revolver") { layer = IgnoreRaycastLayer };
-            gun.transform.SetParent(holder, false);
-            gun.transform.localPosition = new Vector3(0.22f, -0.2f, 0.42f);
+            var inventory = holder.gameObject.AddComponent<WeaponInventory>();
+            var weapons = new List<Weapon>
+            {
+                BuildRevolver(holder, camera),
+                BuildLeverRifle(holder, camera),
+                BuildShotgun(holder, camera),
+                BuildDynamite(holder, camera),
+            };
+            SetList(inventory, "weapons", weapons);
 
-            var model = new GameObject("Model (placeholder)") { layer = IgnoreRaycastLayer }.transform;
-            model.SetParent(gun.transform, false);
+            // Only the first weapon is out at the start (tidier scene view too).
+            for (int i = 1; i < weapons.Count; i++) weapons[i].gameObject.SetActive(false);
+            return inventory;
+        }
 
+        static Weapon BuildRevolver(Transform holder, Camera camera)
+        {
+            var data = GetOrCreateWeaponData("WD_Revolver", d =>
+            {
+                d.displayName = "Revolver";
+                d.description = "Six shots, quick and reliable. Fans the hammer in Dead Eye.";
+                d.fireInterval = 0.22f;
+                d.damage = 25f;
+                d.magazineSize = 6;
+                d.reloadTime = 1.2f;
+                d.reloadStyle = ReloadStyle.Spin;
+                d.recoilPitch = 2.2f;
+                d.recoilYawRandom = 0.6f;
+                d.modelKickDistance = 0.07f;
+                d.modelKickAngle = 12f;
+                d.recoilHopMultiplier = 1f;
+            });
+
+            var weapon = CreateWeapon<HitscanWeapon>(holder, "Revolver", new Vector3(0.22f, -0.2f, 0.42f), data, camera, out var model);
             GunPart(model, PrimitiveType.Cube, "Barrel", new Vector3(0f, 0.025f, 0.16f), new Vector3(0.04f, 0.04f, 0.3f), Vector3.zero, mats.GunMetal);
-            GunPart(model, PrimitiveType.Cube, "Frame", new Vector3(0f, 0f, 0f), new Vector3(0.055f, 0.09f, 0.14f), Vector3.zero, mats.GunMetal);
-            GunPart(model, PrimitiveType.Cylinder, "Cylinder", new Vector3(0f, 0.012f, 0.035f), new Vector3(0.085f, 0.045f, 0.085f), new Vector3(90f, 0f, 0f), mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Frame", Vector3.zero, new Vector3(0.055f, 0.09f, 0.14f), Vector3.zero, mats.GunMetal);
             GunPart(model, PrimitiveType.Cube, "Grip", new Vector3(0f, -0.09f, -0.07f), new Vector3(0.048f, 0.14f, 0.06f), new Vector3(-20f, 0f, 0f), mats.GunWood);
             GunPart(model, PrimitiveType.Cube, "Hammer", new Vector3(0f, 0.055f, -0.07f), new Vector3(0.018f, 0.03f, 0.03f), new Vector3(-30f, 0f, 0f), mats.GunMetal);
 
-            var muzzle = new GameObject("Muzzle") { layer = IgnoreRaycastLayer }.transform;
-            muzzle.SetParent(model, false);
-            muzzle.localPosition = new Vector3(0f, 0.025f, 0.32f);
+            // The cylinder pivots on the barrel axis and turns a chamber per shot (the stripe shows it turning).
+            var cylinder = PartPivot(model, "Cylinder", new Vector3(0f, 0.012f, 0.035f));
+            GunPart(cylinder, PrimitiveType.Cylinder, "Cylinder Mesh", Vector3.zero, new Vector3(0.085f, 0.045f, 0.085f), new Vector3(90f, 0f, 0f), mats.GunMetal);
+            GunPart(cylinder, PrimitiveType.Cube, "Cylinder Stripe", new Vector3(0f, 0.042f, 0f), new Vector3(0.012f, 0.006f, 0.08f), Vector3.zero, mats.GunWood);
 
+            AddMuzzle(weapon, model, new Vector3(0f, 0.025f, 0.32f));
+            return weapon;
+        }
+
+        static Weapon BuildLeverRifle(Transform holder, Camera camera)
+        {
+            var data = GetOrCreateWeaponData("WD_LeverRifle", d =>
+            {
+                d.displayName = "Lever Rifle";
+                d.description = "Slow, heavy single shots. Works the lever between shots and loads one round at a time (shoot to interrupt).";
+                d.fireInterval = 0.75f;
+                d.damage = 60f;
+                d.range = 300f;
+                d.impactForce = 12f;
+                d.magazineSize = 8;
+                d.reloadOneAtATime = true;
+                d.roundReloadTime = 0.45f;
+                d.reloadStyle = ReloadStyle.Dip;
+                d.cycleTime = 0.5f;
+                d.recoilPitch = 4.5f;
+                d.recoilYawRandom = 0.4f;
+                d.modelKickDistance = 0.1f;
+                d.modelKickAngle = 8f;
+                d.modelRecoverySpeed = 10f;
+                d.recoilHopMultiplier = 0.8f;
+                d.deadEyeFireIntervalMultiplier = 0.6f;
+            });
+
+            var weapon = CreateWeapon<HitscanWeapon>(holder, "Lever Rifle", new Vector3(0.2f, -0.21f, 0.33f), data, camera, out var model);
+            GunPart(model, PrimitiveType.Cube, "Receiver", Vector3.zero, new Vector3(0.05f, 0.08f, 0.18f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Barrel", new Vector3(0f, 0.025f, 0.36f), new Vector3(0.03f, 0.03f, 0.56f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Tube Magazine", new Vector3(0f, -0.008f, 0.3f), new Vector3(0.024f, 0.024f, 0.44f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Forestock", new Vector3(0f, -0.012f, 0.2f), new Vector3(0.046f, 0.04f, 0.22f), Vector3.zero, mats.GunWood);
+            GunPart(model, PrimitiveType.Cube, "Stock", new Vector3(0f, -0.045f, -0.22f), new Vector3(0.045f, 0.09f, 0.3f), new Vector3(-8f, 0f, 0f), mats.GunWood);
+
+            // Lever pivots at the front of the trigger guard; the loop swings down while cycling.
+            var lever = PartPivot(model, "Lever", new Vector3(0f, -0.04f, 0.04f));
+            GunPart(lever, PrimitiveType.Cube, "Lever Bar", new Vector3(0f, -0.012f, -0.05f), new Vector3(0.012f, 0.012f, 0.11f), Vector3.zero, mats.GunMetal);
+            GunPart(lever, PrimitiveType.Cube, "Lever Loop", new Vector3(0f, -0.04f, -0.1f), new Vector3(0.012f, 0.06f, 0.012f), Vector3.zero, mats.GunMetal);
+
+            AddMuzzle(weapon, model, new Vector3(0f, 0.025f, 0.65f));
+            return weapon;
+        }
+
+        static Weapon BuildShotgun(Transform holder, Camera camera)
+        {
+            var data = GetOrCreateWeaponData("WD_Shotgun", d =>
+            {
+                d.displayName = "Shotgun";
+                d.description = "Double-barrel. Devastating up close, two shells. Shoot the ground mid-air for a shotgun jump.";
+                d.fireInterval = 0.3f;
+                d.damage = 9f;
+                d.pellets = 10;
+                d.spreadAngle = 6f;
+                d.range = 60f;
+                d.impactForce = 4f;
+                d.falloffStart = 8f;
+                d.falloffEnd = 25f;
+                d.minDamageMultiplier = 0.25f;
+                d.magazineSize = 2;
+                d.reloadTime = 1.4f;
+                d.reloadStyle = ReloadStyle.BreakOpen;
+                d.recoilPitch = 7f;
+                d.recoilYawRandom = 1.5f;
+                d.modelKickDistance = 0.14f;
+                d.modelKickAngle = 18f;
+                d.modelRecoverySpeed = 9f;
+                d.recoilHopMultiplier = 2.2f;
+                d.deadEyeFireIntervalMultiplier = 0.6f;
+            });
+
+            var weapon = CreateWeapon<HitscanWeapon>(holder, "Shotgun", new Vector3(0.2f, -0.22f, 0.34f), data, camera, out var model);
+            GunPart(model, PrimitiveType.Cube, "Barrel L", new Vector3(-0.018f, 0.02f, 0.3f), new Vector3(0.034f, 0.034f, 0.5f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Barrel R", new Vector3(0.018f, 0.02f, 0.3f), new Vector3(0.034f, 0.034f, 0.5f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Receiver", Vector3.zero, new Vector3(0.07f, 0.06f, 0.12f), Vector3.zero, mats.GunMetal);
+            GunPart(model, PrimitiveType.Cube, "Forend", new Vector3(0f, -0.018f, 0.2f), new Vector3(0.06f, 0.035f, 0.22f), Vector3.zero, mats.GunWood);
+            GunPart(model, PrimitiveType.Cube, "Stock", new Vector3(0f, -0.045f, -0.2f), new Vector3(0.05f, 0.09f, 0.32f), new Vector3(-10f, 0f, 0f), mats.GunWood);
+            AddMuzzle(weapon, model, new Vector3(0f, 0.02f, 0.56f));
+            return weapon;
+        }
+
+        static Weapon BuildDynamite(Transform holder, Camera camera)
+        {
+            var data = GetOrCreateWeaponData("WD_Dynamite", d =>
+            {
+                d.displayName = "Dynamite";
+                d.description = "Throw a lit stick that bounces, then explodes. The blast shoves you around without hurting you - dynamite jump!";
+                d.fireInterval = 0.6f;
+                d.damage = 110f;
+                d.magazineSize = 3;
+                d.reloadTime = 2.2f;
+                d.reloadStyle = ReloadStyle.Lower;
+                d.recoilPitch = 0.5f;
+                d.recoilYawRandom = 0f;
+                d.modelKickDistance = -0.15f; // throw: hand pushes forward and tips down
+                d.modelKickAngle = -30f;
+                d.modelRecoverySpeed = 6f;
+                d.recoilHopMultiplier = 0f;
+                d.throwSpeed = 18f;
+                d.throwUpSpeed = 4f;
+                d.fuseTime = 1.6f;
+                d.explosionRadius = 5f;
+                d.explosionKnockback = 14f;
+                d.selfKnockback = 13f;
+            });
+
+            var weapon = CreateWeapon<ThrowableWeapon>(holder, "Dynamite", new Vector3(0.22f, -0.22f, 0.4f), data, camera, out var model);
+            GunPart(model, PrimitiveType.Cylinder, "Stick", Vector3.zero, new Vector3(0.05f, 0.1f, 0.05f), new Vector3(-25f, 0f, 0f), mats.Dynamite);
+            GunPart(model, PrimitiveType.Cylinder, "Fuse", new Vector3(0f, 0.12f, -0.055f), new Vector3(0.01f, 0.03f, 0.01f), new Vector3(-25f, 0f, 0f), mats.Fuse);
+            SetField(weapon, "stickMaterial", mats.Dynamite);
+            SetField(weapon, "fuseMaterial", mats.Fuse);
+            SetField(weapon, "explosionMaterial", mats.Explosion);
+            return weapon;
+        }
+
+        static T CreateWeapon<T>(Transform holder, string name, Vector3 position, WeaponData data, Camera camera, out Transform model) where T : Weapon
+        {
+            var go = new GameObject(name) { layer = IgnoreRaycastLayer };
+            go.transform.SetParent(holder, false);
+            go.transform.localPosition = position;
+
+            model = new GameObject("Model (placeholder)") { layer = IgnoreRaycastLayer }.transform;
+            model.SetParent(go.transform, false);
+
+            var weapon = go.AddComponent<T>();
+            SetField(weapon, "data", data);
+            SetField(weapon, "aimCamera", camera);
+            SetField(weapon, "model", model);
+            SetField(weapon, "tracerMaterial", mats.Tracer);
+            SetField(weapon, "impactMaterial", mats.Impact);
+            return weapon;
+        }
+
+        static void AddMuzzle(Weapon weapon, Transform model, Vector3 position)
+        {
+            var muzzle = PartPivot(model, "Muzzle", position);
             var flash = muzzle.gameObject.AddComponent<Light>();
             flash.type = LightType.Point;
             flash.range = 5f;
@@ -587,15 +764,17 @@ namespace SandHouse.Editor
             flash.color = new Color(1f, 0.75f, 0.4f);
             flash.shadows = LightShadows.None;
             flash.enabled = false;
+            SetField(weapon, "muzzle", muzzle);
+            SetField(weapon, "muzzleFlash", flash);
+        }
 
-            var revolver = gun.AddComponent<Revolver>();
-            SetField(revolver, "aimCamera", camera);
-            SetField(revolver, "model", model);
-            SetField(revolver, "muzzle", muzzle);
-            SetField(revolver, "muzzleFlash", flash);
-            SetField(revolver, "tracerMaterial", mats.Tracer);
-            SetField(revolver, "impactMaterial", mats.Impact);
-            return revolver;
+        /// <summary>An empty used as a pivot for a moving part (its children are the visible pieces).</summary>
+        static Transform PartPivot(Transform parent, string name, Vector3 position)
+        {
+            var pivot = new GameObject(name) { layer = IgnoreRaycastLayer }.transform;
+            pivot.SetParent(parent, false);
+            pivot.localPosition = position;
+            return pivot;
         }
 
         static void GunPart(Transform parent, PrimitiveType type, string name, Vector3 position, Vector3 scale, Vector3 euler, Material material)
@@ -613,12 +792,38 @@ namespace SandHouse.Editor
             renderer.shadowCastingMode = ShadowCastingMode.Off;
         }
 
-        static void BuildHud(PlayerMotor motor, Health health, Revolver revolver)
+        /// <summary>Loads a WeaponData asset, creating it with default values only if it doesn't exist yet.</summary>
+        static WeaponData GetOrCreateWeaponData(string assetName, System.Action<WeaponData> setDefaults)
         {
+            string path = $"{WeaponDataFolder}/{assetName}.asset";
+            var data = AssetDatabase.LoadAssetAtPath<WeaponData>(path);
+            if (data != null) return data; // keep whatever has been tuned in the Inspector
+
+            Directory.CreateDirectory(WeaponDataFolder);
+            AssetDatabase.Refresh();
+            data = ScriptableObject.CreateInstance<WeaponData>();
+            setDefaults(data);
+            AssetDatabase.CreateAsset(data, path);
+            return data;
+        }
+
+        static void BuildHud(PlayerMotor motor, Health health, WeaponInventory weapons)
+        {
+            var ui = new GameObject("UI").transform;
+
             var hud = new GameObject("HUD").AddComponent<DebugHUD>();
+            hud.transform.SetParent(ui, false);
             SetField(hud, "motor", motor);
-            SetField(hud, "revolver", revolver);
-            SetField(hud, "playerHealth", health);
+            SetField(hud, "weapons", weapons);
+
+            var statsPanel = new GameObject("Stats Panel").AddComponent<StatsPanel>();
+            statsPanel.transform.SetParent(ui, false);
+            SetField(statsPanel, "stats", motor.GetComponent<PlayerStats>());
+            SetField(statsPanel, "health", health);
+            SetField(statsPanel, "input", motor.GetComponent<PlayerInputReader>());
+
+            var pause = new GameObject("Pause Menu").AddComponent<PauseMenu>();
+            pause.transform.SetParent(ui, false);
         }
 
         static void Dummy(Transform parent, Vector3 position, Vector3 movingTravel = default, float movingSpeed = 0f)
@@ -724,6 +929,21 @@ namespace SandHouse.Editor
                 return;
             }
             prop.objectReferenceValue = value;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        static void SetList<T>(Object target, string fieldName, IList<T> values) where T : Object
+        {
+            var so = new SerializedObject(target);
+            var prop = so.FindProperty(fieldName);
+            if (prop == null || !prop.isArray)
+            {
+                Debug.LogError($"[TestArenaBuilder] {target.GetType().Name} has no serialized list '{fieldName}'");
+                return;
+            }
+            prop.arraySize = values.Count;
+            for (int i = 0; i < values.Count; i++)
+                prop.GetArrayElementAtIndex(i).objectReferenceValue = values[i];
             so.ApplyModifiedPropertiesWithoutUndo();
         }
 
