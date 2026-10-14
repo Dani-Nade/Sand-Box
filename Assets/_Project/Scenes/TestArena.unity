@@ -3141,7 +3141,7 @@ GameObject:
   - component: {fileID: 293165437}
   - component: {fileID: 293165436}
   m_Layer: 0
-  m_Name: Bounce Wall R
+  m_Name: Run Wall R
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3501,7 +3501,7 @@ GameObject:
   - component: {fileID: 340728501}
   - component: {fileID: 340728500}
   m_Layer: 0
-  m_Name: Bounce Wall L
+  m_Name: Run Wall L
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -4957,12 +4957,18 @@ MonoBehaviour:
   slideRearmSprintTime: 0.25
   cancelSlideOnShoot: 1
   cancelSlideOnBackInput: 1
-  enableWallBounce: 1
-  wallBounceUpSpeed: 7
-  wallBounceOutSpeed: 6.5
-  wallBounceAlongKeep: 1
+  enableWallRun: 1
+  wallRunMinSpeed: 5
+  wallRunSpeed: 10
+  wallRunAcceleration: 25
+  wallRunDuration: 1.5
+  wallRunGravityScale: 0.3
+  wallRunMaxFallSpeed: 2
+  wallRunStickSpeed: 2
+  wallRunJumpOutSpeed: 6
+  wallRunJumpUpSpeed: 7
+  wallRunJumpReattachDelay: 0.25
   wallCheckDistance: 0.5
-  maxWallBounces: 3
   cameraRoot: {fileID: 1449853242}
   aimTransform: {fileID: 402724212}
   walkSpeed: 5
@@ -5566,7 +5572,7 @@ GameObject:
   - component: {fileID: 467913224}
   - component: {fileID: 467913223}
   m_Layer: 0
-  m_Name: Label Space near a wall in the air
+  m_Name: Label Hold Space to run; release + press to jump off
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -5595,7 +5601,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 467913221}
-  m_Text: Space near a wall in the air
+  m_Text: Hold Space to run; release + press to jump off
   m_OffsetZ: 0
   m_CharacterSize: 0.035
   m_LineSpacing: 1
@@ -13901,7 +13907,7 @@ GameObject:
   - component: {fileID: 1193821795}
   - component: {fileID: 1193821794}
   m_Layer: 0
-  m_Name: Label WALL BOUNCE
+  m_Name: Label WALL RUN
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -13930,7 +13936,7 @@ TextMesh:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1193821792}
-  m_Text: WALL BOUNCE
+  m_Text: WALL RUN
   m_OffsetZ: 0
   m_CharacterSize: 0.07
   m_LineSpacing: 1
@@ -15903,7 +15909,7 @@ GameObject:
   - component: {fileID: 1343738293}
   - component: {fileID: 1343738292}
   m_Layer: 0
-  m_Name: Bounce Goal 3.5m
+  m_Name: Run Goal 1.5m
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -15918,8 +15924,8 @@ Transform:
   m_GameObject: {fileID: 1343738290}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 10, y: 1.75, z: 42}
-  m_LocalScale: {x: 3.5, y: 3.5, z: 4}
+  m_LocalPosition: {x: 10, y: 0.75, z: 42}
+  m_LocalScale: {x: 3.5, y: 1.5, z: 4}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 909782355}
