@@ -385,14 +385,14 @@ namespace SandHouse.Editor
             }
             Label("MANTLE  (jump + hold W)   /   MANTLE SLIDE  (run in, press Ctrl as you reach the top)", parent, new Vector3(-3f, 4f, 25.2f), Quaternion.identity, 0.045f);
 
-            // Wall bounce corridor (3.5 m between walls): zig-zag up the walls, then mantle onto the 3.5 m platform at the end.
-            const float corridorLeft = 8f, corridorRight = 12f, corridorStart = 28f, corridorLength = 16f, goalHeight = 3.5f;
+            // Wall run corridor: hold Space beside either wall, release and press again to jump off.
+            const float corridorLeft = 8f, corridorRight = 12f, corridorStart = 28f, corridorLength = 16f, goalHeight = 1.5f;
             float corridorMid = (corridorLeft + corridorRight) / 2f;
-            BoxOnFloor("Bounce Wall L", parent, corridorLeft, corridorStart + corridorLength / 2, new Vector3(0.5f, 9f, corridorLength), mats.Wall);
-            BoxOnFloor("Bounce Wall R", parent, corridorRight, corridorStart + corridorLength / 2, new Vector3(0.5f, 9f, corridorLength), mats.Wall);
-            BoxOnFloor($"Bounce Goal {goalHeight}m", parent, corridorMid, corridorStart + corridorLength - 2f, new Vector3(corridorRight - corridorLeft - 0.5f, goalHeight, 4f), mats.Obstacle);
-            Label("WALL BOUNCE", parent, new Vector3(corridorMid, 6f, corridorStart - 0.3f), Quaternion.identity, 0.07f);
-            Label("Space near a wall in the air", parent, new Vector3(corridorMid, 5.3f, corridorStart - 0.3f), Quaternion.identity, 0.035f);
+            BoxOnFloor("Run Wall L", parent, corridorLeft, corridorStart + corridorLength / 2, new Vector3(0.5f, 9f, corridorLength), mats.Wall);
+            BoxOnFloor("Run Wall R", parent, corridorRight, corridorStart + corridorLength / 2, new Vector3(0.5f, 9f, corridorLength), mats.Wall);
+            BoxOnFloor($"Run Goal {goalHeight}m", parent, corridorMid, corridorStart + corridorLength - 2f, new Vector3(corridorRight - corridorLeft - 0.5f, goalHeight, 4f), mats.Obstacle);
+            Label("WALL RUN", parent, new Vector3(corridorMid, 6f, corridorStart - 0.3f), Quaternion.identity, 0.07f);
+            Label("Hold Space to run; release + press to jump off", parent, new Vector3(corridorMid, 5.3f, corridorStart - 0.3f), Quaternion.identity, 0.035f);
 
             // Slide hill: walk up the 12 degree ramp, then slide down it to pick up speed.
             Ramp("Slide Hill", parent, new Vector3(-8f, 0f, 29f), 5f, 3f, 12f, endAtZ: false);
