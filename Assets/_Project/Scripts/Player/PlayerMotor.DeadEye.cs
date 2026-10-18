@@ -6,7 +6,7 @@ namespace SandHouse.Player
     /// <summary>
     /// Dead Eye Dive: a Max Payne style dive in your movement direction with slow motion.
     /// Slow-mo lasts until you land (you roll out of it) or a time limit, then recharges.
-    /// The revolver fires twice as fast while Dead Eye is active (see Revolver).
+    /// Weapons fire faster while Dead Eye is active (see WeaponData.deadEyeFireIntervalMultiplier).
     /// </summary>
     public partial class PlayerMotor
     {
@@ -63,6 +63,13 @@ namespace SandHouse.Player
             Time.fixedDeltaTime = defaultFixedDeltaTime * deadEyeTimeScale;
             deadEyeEndRealTime = Time.unscaledTime + deadEyeMaxDuration;
             DeadEyeStarted?.Invoke();
+        }
+
+        /// <summary>Pushes the real-time Dead Eye timers back (used while the game is paused).</summary>
+        void HoldDeadEyeTimers(float realSeconds)
+        {
+            deadEyeEndRealTime += realSeconds;
+            deadEyeReadyRealTime += realSeconds;
         }
 
         void UpdateDeadEyeTimer()

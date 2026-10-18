@@ -1,4 +1,5 @@
 using System;
+using SandHouse.Settings;
 using UnityEngine;
 
 namespace SandHouse.Player
@@ -13,7 +14,7 @@ namespace SandHouse.Player
     {
         [SerializeField] PlayerMotor motor;
         [SerializeField] Camera targetCamera;
-        [Tooltip("Scales every effect. 0 turns camera motion off (motion-sickness option).")]
+        [Tooltip("Scales every effect, on top of the player's Camera Motion setting.")]
         [SerializeField, Range(0f, 1f)] float intensity = 1f;
 
         [Header("Bob")]
@@ -68,7 +69,6 @@ namespace SandHouse.Player
         [SerializeField] float fovSmoothing = 7f;
         [SerializeField] float fovPunchRecovery = 6f;
 
-        float baseFov;
         float tilt;
         float landOffset, landVelocity;
         float previousStepSignal;
@@ -89,8 +89,10 @@ namespace SandHouse.Player
         void Awake()
         {
             if (targetCamera == null) targetCamera = GetComponentInChildren<Camera>();
-            if (targetCamera != null) baseFov = targetCamera.fieldOfView;
         }
+
+        /// <summary>This component's intensity combined with the player's Camera Motion setting.</summary>
+        float Motion => intensity * GameSettings.CameraMotion;
 
         void OnEnable()
         {
@@ -174,8 +176,9 @@ namespace SandHouse.Player
                 rollPitch = fullRollFlip ? 360f * Mathf.SmoothStep(0f, 1f, p) : Mathf.Sin(p * Mathf.PI) * rollDipAngle;
             }
 
-            transform.localPosition = (bob + Vector3.up * landOffset) * intensity;
-            transform.localRotation = Quaternion.Euler(rollPitch * intensity, 0f, tilt * intensity);
+            float motion = Motion;
+            transform.localPosition = (bob + Vector3.up * landOffset) * motion;
+            transform.localRotation = Quaternion.Euler(rollPitch * motion, 0f, tilt * motion);
 
             UpdateFov(dt, speed);
         }
@@ -190,7 +193,7 @@ namespace SandHouse.Player
             if (motor.IsDeadEye) boost += deadEyeFovChange;
 
             fovPunch = Mathf.Lerp(fovPunch, 0f, 1f - Mathf.Exp(-fovPunchRecovery * dt));
-            float targetFov = baseFov + (boost + fovPunch) * intensity;
+            float targetFov = GameSettings.FieldOfView + (boost + fovPunch) * Motion;
             targetCamera.fieldOfView = Mathf.Lerp(targetCamera.fieldOfView, targetFov, 1f - Mathf.Exp(-fovSmoothing * dt));
         }
 

@@ -1,4 +1,3 @@
-using SandHouse.Combat;
 using SandHouse.Player;
 using SandHouse.Weapons;
 using UnityEngine;
@@ -7,14 +6,14 @@ using UnityEngine.UI;
 namespace SandHouse.UI
 {
     /// <summary>
-    /// Placeholder test HUD built entirely in code: crosshair, hitmarker, ammo, health, Dead Eye meter,
-    /// movement-tech callouts and a movement readout for tuning. Replace with a designed HUD later.
+    /// Placeholder test HUD built in code: crosshair, hitmarker, ammo, dash and Dead Eye meters,
+    /// movement-tech callouts and a movement readout for tuning. Health lives in the StatsPanel.
+    /// Replace with a designed HUD later.
     /// </summary>
     public class DebugHUD : MonoBehaviour
     {
         [SerializeField] PlayerMotor motor;
-        [SerializeField] Revolver revolver;
-        [SerializeField] Health playerHealth;
+        [SerializeField] WeaponInventory weapons;
         [SerializeField] bool showMovementStats = true;
 
         static readonly Color HitColor = Color.white;
@@ -26,21 +25,16 @@ namespace SandHouse.UI
         const float HitmarkerDuration = 0.15f;
         const float CalloutDuration = 0.9f;
 
-        Font font;
-        Text ammoText, healthText, statsText, calloutText, deadEyeText, dashText;
+        Text ammoText, weaponNameText, weaponListText, statsText, calloutText, deadEyeText, dashText;
         Image deadEyeOverlay;
         Image[] hitmarker;
         float hitmarkerTimer, calloutTimer, fpsSmoothed;
 
-        void Awake()
-        {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            BuildUI();
-        }
+        void Awake() => BuildUI();
 
         void OnEnable()
         {
-            if (revolver != null) revolver.HitTarget += OnHit;
+            if (weapons != null) weapons.HitTarget += OnHit;
             if (motor == null) return;
             motor.MantleSlideAttempted += OnMantleSlideAttempted;
             motor.Rolled += OnRolled;
@@ -53,7 +47,7 @@ namespace SandHouse.UI
 
         void OnDisable()
         {
-            if (revolver != null) revolver.HitTarget -= OnHit;
+            if (weapons != null) weapons.HitTarget -= OnHit;
             if (motor == null) return;
             motor.MantleSlideAttempted -= OnMantleSlideAttempted;
             motor.Rolled -= OnRolled;
@@ -88,18 +82,14 @@ namespace SandHouse.UI
             // Unscaled so the HUD behaves normally during Dead Eye slow motion.
             float dt = Time.unscaledDeltaTime;
 
-            if (revolver != null)
-                ammoText.text = revolver.IsReloading ? "RELOADING" : $"{revolver.Ammo} / {revolver.MagazineSize}";
-
-            if (playerHealth != null)
-                healthText.text = $"HP {playerHealth.Current:0}";
+            UpdateWeaponText();
 
             if (motor != null)
             {
                 deadEyeOverlay.enabled = motor.IsDeadEye;
                 float charge = motor.DeadEyeCharge01;
                 deadEyeText.text = motor.IsDeadEye ? "DEAD EYE" : charge >= 1f ? "DEAD EYE READY  [F]" : $"DEAD EYE  {charge * 100f:0}%";
-                deadEyeText.color = motor.IsDeadEye || charge >= 1f ? GoodColor : new Color(1f, 1f, 1f, 0.5f);
+                deadEyeText.color = motor.IsDeadEye || charge >= 1f ? GoodColor : UIFactory.MutedTextColor;
                 dashText.text = DashMeter();
             }
 
@@ -125,6 +115,25 @@ namespace SandHouse.UI
                 hitmarkerTimer -= dt;
                 SetHitmarkerAlpha(Mathf.Clamp01(hitmarkerTimer / HitmarkerDuration));
             }
+        }
+
+        void UpdateWeaponText()
+        {
+            Weapon current = weapons != null ? weapons.Current : null;
+            if (current == null) return;
+
+            weaponNameText.text = current.DisplayName.ToUpperInvariant();
+            ammoText.text = current.IsReloading ? $"RELOADING  {current.Ammo} / {current.MagazineSize}" : $"{current.Ammo} / {current.MagazineSize}";
+
+            // "1 Revolver   2 Rifle ..." with the equipped weapon highlighted.
+            var list = new System.Text.StringBuilder();
+            for (int i = 0; i < weapons.Weapons.Count; i++)
+            {
+                string entry = $"{i + 1} {weapons.Weapons[i].DisplayName}";
+                list.Append(i == weapons.CurrentIndex ? $"<color=#FFCC59>{entry}</color>" : entry);
+                if (i < weapons.Weapons.Count - 1) list.Append("    ");
+            }
+            weaponListText.text = list.ToString();
         }
 
         /// <summary>"DASH ●●○" - filled dots are ready charges, the partly refilled one shows a percentage.</summary>
@@ -177,42 +186,44 @@ namespace SandHouse.UI
 
         void BuildUI()
         {
-            var canvasGo = new GameObject("HUD Canvas", typeof(Canvas), typeof(CanvasScaler));
-            canvasGo.transform.SetParent(transform, false);
-            var canvas = canvasGo.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            var scaler = canvasGo.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
-            var root = canvasGo.transform;
+            var root = UIFactory.CreateCanvas("HUD Canvas", transform, sortingOrder: 0, interactive: false).transform;
+            var center = new Vector2(0.5f, 0.5f);
 
             // Full-screen sepia tint for Dead Eye (built first so it sits behind everything else).
-            deadEyeOverlay = CreateRect(root, "Dead Eye Tint", Vector2.zero, Vector2.zero, 0f, DeadEyeTint);
-            var overlayRect = (RectTransform)deadEyeOverlay.transform;
-            overlayRect.anchorMin = Vector2.zero;
-            overlayRect.anchorMax = Vector2.one;
-            overlayRect.sizeDelta = Vector2.zero;
+            deadEyeOverlay = UIFactory.CreateImage(root, "Dead Eye Tint", DeadEyeTint);
+            deadEyeOverlay.rectTransform.Stretch();
             deadEyeOverlay.enabled = false;
 
             BuildCrosshair(root);
             hitmarker = BuildHitmarker(root);
             SetHitmarkerAlpha(0f);
 
-            ammoText = CreateText(root, "Ammo", new Vector2(1, 0), new Vector2(-60, 50), 44, TextAnchor.LowerRight);
-            healthText = CreateText(root, "Health", new Vector2(0, 0), new Vector2(60, 50), 36, TextAnchor.LowerLeft);
-            deadEyeText = CreateText(root, "Dead Eye", new Vector2(0.5f, 0), new Vector2(0, 40), 24, TextAnchor.LowerCenter);
-            dashText = CreateText(root, "Dash", new Vector2(0.5f, 0), new Vector2(0, 75), 28, TextAnchor.LowerCenter);
-            statsText = CreateText(root, "Stats", new Vector2(0, 1), new Vector2(30, -30), 22, TextAnchor.UpperLeft);
+            ammoText = UIFactory.CreateText(root, "Ammo", "", 44, TextAnchor.LowerRight);
+            ammoText.rectTransform.Place(new Vector2(1f, 0f), new Vector2(-60f, 50f), new Vector2(600f, 60f));
+
+            weaponNameText = UIFactory.CreateText(root, "Weapon Name", "", 24, TextAnchor.LowerRight, UIFactory.AccentColor);
+            weaponNameText.rectTransform.Place(new Vector2(1f, 0f), new Vector2(-60f, 108f), new Vector2(600f, 32f));
+
+            weaponListText = UIFactory.CreateText(root, "Weapon List", "", 18, TextAnchor.LowerRight, UIFactory.MutedTextColor);
+            weaponListText.rectTransform.Place(new Vector2(1f, 0f), new Vector2(-60f, 18f), new Vector2(900f, 26f));
+
+            deadEyeText = UIFactory.CreateText(root, "Dead Eye", "", 24, TextAnchor.LowerCenter);
+            deadEyeText.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(600f, 32f));
+
+            dashText = UIFactory.CreateText(root, "Dash", "", 28, TextAnchor.LowerCenter);
+            dashText.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0f, 75f), new Vector2(600f, 36f));
+
+            statsText = UIFactory.CreateText(root, "Stats", "", 22, TextAnchor.UpperLeft);
+            statsText.rectTransform.Place(new Vector2(0f, 1f), new Vector2(30f, -30f), new Vector2(800f, 200f));
             statsText.gameObject.SetActive(showMovementStats);
 
-            calloutText = CreateText(root, "Callout", new Vector2(0.5f, 0.5f), new Vector2(0, -90), 34, TextAnchor.MiddleCenter);
-            calloutText.color = Color.clear;
+            calloutText = UIFactory.CreateText(root, "Callout", "", 34, TextAnchor.MiddleCenter, Color.clear);
+            calloutText.rectTransform.Place(center, new Vector2(0f, -90f), new Vector2(800f, 50f));
 
-            var help = CreateText(root, "Controls", new Vector2(1, 1), new Vector2(-30, -30), 19, TextAnchor.UpperRight);
-            help.text =
+            var help = UIFactory.CreateText(root, "Controls",
                 "WASD move   Shift dash (3 charges, works in the air)   Space jump   Ctrl crouch\n" +
-                "LMB shoot   R reload   Esc cursor      Dash + Space = dash jump\n" +
+                "LMB shoot   R reload   1-4 / scroll = switch weapon   Esc pause   Hold Tab = upgrade stats\n" +
+                "Dash + Space = dash jump      Shotgun at the ground in the air = shotgun jump\n" +
                 "Run/dash + hold Ctrl = slide      Jump into ledge + W = mantle\n" +
                 "Ctrl at the END of a mantle = mantle slide\n" +
                 "Hold Space beside a wall in the air = wall run; release + press Space = jump off\n" +
@@ -220,22 +231,22 @@ namespace SandHouse.UI
                 "Hold Q = lasso (Space = lasso jump)      F = Dead Eye dive\n" +
                 "Ctrl high in the air = slam (Space on landing = slam jump)\n" +
                 "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop\n" +
-                "Jump again right as you land = bunny hop (keeps speed, chains add speed)";
-            help.color = new Color(1f, 1f, 1f, 0.6f);
-            ((RectTransform)help.transform).sizeDelta = new Vector2(1000, 260);
+                "Jump again right as you land = bunny hop (keeps speed, chains add speed)",
+                19, TextAnchor.UpperRight, UIFactory.MutedTextColor);
+            help.rectTransform.Place(new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(1000f, 260f));
         }
 
-        void BuildCrosshair(Transform parent)
+        static void BuildCrosshair(Transform parent)
         {
             const float gap = 6f, length = 9f, thickness = 2f;
-            CreateRect(parent, "Dot", Vector2.zero, new Vector2(thickness, thickness), 0f, Color.white);
-            CreateRect(parent, "Up", new Vector2(0, gap + length / 2), new Vector2(thickness, length), 0f, Color.white);
-            CreateRect(parent, "Down", new Vector2(0, -gap - length / 2), new Vector2(thickness, length), 0f, Color.white);
-            CreateRect(parent, "Left", new Vector2(-gap - length / 2, 0), new Vector2(length, thickness), 0f, Color.white);
-            CreateRect(parent, "Right", new Vector2(gap + length / 2, 0), new Vector2(length, thickness), 0f, Color.white);
+            CrosshairBar(parent, "Dot", Vector2.zero, new Vector2(thickness, thickness), 0f);
+            CrosshairBar(parent, "Up", new Vector2(0, gap + length / 2), new Vector2(thickness, length), 0f);
+            CrosshairBar(parent, "Down", new Vector2(0, -gap - length / 2), new Vector2(thickness, length), 0f);
+            CrosshairBar(parent, "Left", new Vector2(-gap - length / 2, 0), new Vector2(length, thickness), 0f);
+            CrosshairBar(parent, "Right", new Vector2(gap + length / 2, 0), new Vector2(length, thickness), 0f);
         }
 
-        Image[] BuildHitmarker(Transform parent)
+        static Image[] BuildHitmarker(Transform parent)
         {
             const float offset = 14f, length = 10f, thickness = 2.5f;
             var images = new Image[4];
@@ -243,42 +254,19 @@ namespace SandHouse.UI
             {
                 float angle = 45f + 90f * i;
                 Vector2 dir = Quaternion.Euler(0, 0, angle) * Vector2.right;
-                images[i] = CreateRect(parent, "Hitmarker", dir * offset, new Vector2(length, thickness), angle, HitColor);
+                images[i] = CrosshairBar(parent, "Hitmarker", dir * offset, new Vector2(length, thickness), angle);
             }
             return images;
         }
 
-        static Image CreateRect(Transform parent, string name, Vector2 position, Vector2 size, float rotation, Color color)
+        static Image CrosshairBar(Transform parent, string name, Vector2 position, Vector2 size, float rotation)
         {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(parent, false);
-            var rt = (RectTransform)go.transform;
-            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = position;
-            rt.sizeDelta = size;
-            rt.localRotation = Quaternion.Euler(0, 0, rotation);
-            var img = go.GetComponent<Image>();
-            img.color = color;
-            img.raycastTarget = false;
-            return img;
-        }
-
-        Text CreateText(Transform parent, string name, Vector2 anchor, Vector2 position, int size, TextAnchor alignment)
-        {
-            var go = new GameObject(name, typeof(RectTransform), typeof(Text), typeof(Shadow));
-            go.transform.SetParent(parent, false);
-            var rt = (RectTransform)go.transform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = anchor;
-            rt.anchoredPosition = position;
-            rt.sizeDelta = new Vector2(800, 200);
-            var text = go.GetComponent<Text>();
-            text.font = font;
-            text.fontSize = size;
-            text.alignment = alignment;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            go.GetComponent<Shadow>().effectDistance = new Vector2(2, -2);
-            return text;
+            var image = UIFactory.CreateImage(parent, name, HitColor);
+            image.rectTransform.Place(new Vector2(0.5f, 0.5f), Vector2.zero, size);
+            image.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            image.rectTransform.anchoredPosition = position;
+            image.rectTransform.localRotation = Quaternion.Euler(0, 0, rotation);
+            return image;
         }
     }
 }

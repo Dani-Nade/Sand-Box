@@ -1,3 +1,5 @@
+using SandHouse.Settings;
+using SandHouse.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -5,15 +7,14 @@ namespace SandHouse.Player
 {
     /// <summary>
     /// Mouse / right-stick look. Yaw rotates the player body, pitch rotates the camera pivot.
+    /// Mouse sensitivity and invert Y come from <see cref="GameSettings"/>.
     /// Also owns weapon recoil so it can be applied on top of the player's aim.
-    /// Esc frees the cursor, clicking the game view locks it again.
+    /// The cursor is locked during play and freed while any menu is open (see UIState).
     /// </summary>
     [RequireComponent(typeof(PlayerInputReader))]
     public class PlayerLook : MonoBehaviour
     {
         [SerializeField] Transform cameraPivot;
-        [Tooltip("Degrees per pixel of mouse movement.")]
-        [SerializeField] float mouseSensitivity = 0.1f;
         [Tooltip("Degrees per second at full stick deflection.")]
         [SerializeField] float gamepadSensitivity = 200f;
         [SerializeField] float maxPitch = 89f;
@@ -31,16 +32,35 @@ namespace SandHouse.Player
 
         void Awake() => input = GetComponent<PlayerInputReader>();
 
-        void Start() => LockCursor(true);
+        void OnEnable() => UIState.Changed += OnMenusChanged;
+        void OnDisable() => UIState.Changed -= OnMenusChanged;
+
+        void Start() => LockCursor(!UIState.AnyMenuOpen);
+
+        void OnMenusChanged() => LockCursor(!UIState.AnyMenuOpen);
 
         void Update()
         {
-            HandleCursor();
-            if (!CursorLocked) return;
+            if (UIState.AnyMenuOpen) return;
+
+            // Clicking back into the game window re-captures the mouse (e.g. after alt-tabbing).
+            if (!CursorLocked)
+            {
+                if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) LockCursor(true);
+                return;
+            }
 
             Vector2 delta = input.Look;
-            // Unscaled so aiming stays at normal speed during Dead Eye slow motion.
-            delta *= input.LookIsGamepad ? gamepadSensitivity * Time.unscaledDeltaTime : mouseSensitivity;
+            if (input.LookIsGamepad)
+            {
+                // Unscaled so aiming stays at normal speed during Dead Eye slow motion.
+                delta *= gamepadSensitivity * Time.unscaledDeltaTime;
+            }
+            else
+            {
+                delta *= GameSettings.MouseSensitivity;
+            }
+            if (GameSettings.InvertY) delta.y = -delta.y;
 
             transform.Rotate(0f, delta.x, 0f, Space.Self);
             pitch = Mathf.Clamp(pitch - delta.y, -maxPitch, maxPitch);
@@ -58,14 +78,6 @@ namespace SandHouse.Player
         {
             recoilPitch += verticalDegrees;
             recoilYaw += horizontalDegrees;
-        }
-
-        void HandleCursor()
-        {
-            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-                LockCursor(false);
-            else if (!CursorLocked && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
-                LockCursor(true);
         }
 
         static void LockCursor(bool locked)

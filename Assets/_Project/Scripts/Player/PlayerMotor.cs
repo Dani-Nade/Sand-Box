@@ -1,5 +1,6 @@
 using System;
 using SandHouse.Combat;
+using SandHouse.Stats;
 using UnityEngine;
 
 namespace SandHouse.Player
@@ -19,7 +20,7 @@ namespace SandHouse.Player
     ///   PlayerMotor.Lasso.cs      lasso swing / yank
     ///   PlayerMotor.DeadEye.cs    slow-motion dive
     ///   PlayerMotor.Slam.cs       ground slam + slam jump
-    ///   PlayerMotor.RecoilHop.cs  revolver recoil boosts in the air
+    ///   PlayerMotor.RecoilHop.cs  recoil hops + explosion knockback
     /// </summary>
     [RequireComponent(typeof(CharacterController), typeof(PlayerInputReader))]
     public partial class PlayerMotor : MonoBehaviour
@@ -79,6 +80,7 @@ namespace SandHouse.Player
         CharacterController controller;
         PlayerInputReader input;
         Health selfHealth;
+        PlayerStats stats;
 
         Vector3 horizontalVelocity;
         float verticalVelocity;
@@ -117,6 +119,7 @@ namespace SandHouse.Player
             controller = GetComponent<CharacterController>();
             input = GetComponent<PlayerInputReader>();
             selfHealth = GetComponent<Health>();
+            stats = GetComponent<PlayerStats>();
             dashCharge = maxDashCharges;
             SetHeight(standingHeight);
         }
@@ -129,6 +132,12 @@ namespace SandHouse.Player
 
         void Update()
         {
+            if (UI.UIState.IsPaused)
+            {
+                HoldDeadEyeTimers(Time.unscaledDeltaTime); // real-time timers shouldn't run out while paused
+                return;
+            }
+
             float dt = Time.deltaTime;
 
             if (input.JumpPressed) lastJumpPressedTime = Time.time;

@@ -79,6 +79,7 @@ namespace SandHouse.Player
         void Shockwave(Vector3 center, float radius, float height)
         {
             float power = 1f + height * slamDamagePerMetre;
+            float magic = stats != null ? stats.MagicDamageMultiplier : 1f; // the slam counts as an ability
             int count = Physics.OverlapSphereNonAlloc(center, radius, SlamHits, ~0, QueryTriggerInteraction.Ignore);
             SlamDamaged.Clear();
 
@@ -97,7 +98,7 @@ namespace SandHouse.Player
                 float falloff = 1f - Mathf.Clamp01(Vector3.Distance(center, point) / radius);
                 health.TakeDamage(new DamageInfo
                 {
-                    Amount = slamDamage * power * Mathf.Lerp(0.4f, 1f, falloff),
+                    Amount = slamDamage * power * magic * Mathf.Lerp(0.4f, 1f, falloff),
                     Point = point + Vector3.up * 0.5f,
                     Direction = (point - center).normalized,
                     Source = gameObject,
