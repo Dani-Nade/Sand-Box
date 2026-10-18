@@ -32,6 +32,16 @@ namespace SandHouse.Weapons
         Light spark;
         float fuse;
 
+        public static void ClearOwnedBy(Transform owner)
+        {
+            foreach (var projectile in FindObjectsByType<DynamiteProjectile>())
+                if (projectile.settings.Source != null && projectile.settings.Source.transform.IsChildOf(owner))
+                {
+                    projectile.gameObject.SetActive(false);
+                    Destroy(projectile.gameObject);
+                }
+        }
+
         public static void Spawn(Settings settings)
         {
             var go = new GameObject("Dynamite");

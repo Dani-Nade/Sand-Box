@@ -62,12 +62,13 @@ namespace SandHouse.Player
             forward.y = 0f;
             forward.Normalize();
             float radius = controller.radius;
+            float reachHeight = CanUseClimbMantle ? Mathf.Max(maxMantleHeight, wallClimbMantleReach) : maxMantleHeight;
             var ignore = QueryTriggerInteraction.Ignore;
 
             // 1. Find a wall face in front of us somewhere between our feet and max reach.
             RaycastHit wall = default;
             bool foundWall = false;
-            for (float h = 0.2f; h <= maxMantleHeight; h += 0.25f)
+            for (float h = 0.2f; h <= reachHeight; h += 0.25f)
             {
                 if (Physics.Raycast(feet + Vector3.up * h, forward, out RaycastHit hit, radius + mantleReach, obstructionMask, ignore)
                     && Mathf.Abs(hit.normal.y) < 0.3f)
@@ -85,15 +86,16 @@ namespace SandHouse.Player
 
             // 2. Find the top of that wall by probing down from just above max reach.
             Vector3 probe = wall.point + inward * 0.15f;
-            probe.y = feet.y + maxMantleHeight + 0.05f;
+            probe.y = feet.y + reachHeight + 0.05f;
             if (Physics.CheckSphere(probe, 0.05f, obstructionMask, ignore)) return false; // wall is taller than we can reach
 
-            if (!Physics.Raycast(probe, Vector3.down, out RaycastHit top, maxMantleHeight + 0.05f - minMantleHeight, obstructionMask, ignore))
+            if (!Physics.Raycast(probe, Vector3.down, out RaycastHit top, reachHeight + 0.05f - minMantleHeight, obstructionMask, ignore))
                 return false;
             if (top.normal.y < 0.7f) return false; // too steep to stand on
 
             float ledgeHeight = top.point.y - feet.y;
-            if (ledgeHeight < minMantleHeight || ledgeHeight > maxMantleHeight) return false;
+            if (ledgeHeight < minMantleHeight || ledgeHeight > reachHeight) return false;
+            if (CanUseClimbMantle && top.point.y > wallClimbLedgeCeiling + 0.01f) return false;
 
             // 3. Nothing above our head on the way up.
             float headY = feet.y + controller.height;
@@ -111,6 +113,8 @@ namespace SandHouse.Player
 
         void StartMantle(Vector3 end, Vector3 direction, float ledgeHeight, bool endCrouched)
         {
+            StopWallClimb();
+            IsWallRunning = false;
             if (IsDashing) EndDash();
             IsMantling = true;
             IsGrounded = false;

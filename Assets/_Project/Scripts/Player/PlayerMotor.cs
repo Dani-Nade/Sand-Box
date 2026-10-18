@@ -15,6 +15,7 @@ namespace SandHouse.Player
     ///   PlayerMotor.Slide.cs      sliding
     ///   PlayerMotor.Mantle.cs     mantling + timed mantle slide
     ///   PlayerMotor.WallRun.cs  timed wall running
+    ///   PlayerMotor.WallClimb.cs forward-facing climb + ledge grab
     ///   PlayerMotor.AirStrafe.cs  air strafing + air steering
     ///   PlayerMotor.BunnyHop.cs
     ///   PlayerMotor.Lasso.cs      lasso swing / yank
@@ -93,6 +94,7 @@ namespace SandHouse.Player
         // Speed right before we last ran into a wall - hitting a ledge's wall shouldn't erase mantle-slide speed.
         float speedBeforeWallHit;
         float wallHitTime = float.NegativeInfinity;
+        static readonly RaycastHit[] GroundWallHits = new RaycastHit[16];
 
         public Vector3 Velocity => horizontalVelocity + Vector3.up * verticalVelocity;
         public float HorizontalSpeed => horizontalVelocity.magnitude;
@@ -122,17 +124,19 @@ namespace SandHouse.Player
             stats = GetComponent<PlayerStats>();
             dashCharge = maxDashCharges;
             SetHeight(standingHeight);
+            ResetWallClimb();
         }
 
         void OnDisable()
         {
             IsWallRunning = false;
+            StopWallClimb();
             StopDeadEye();
         }
 
         void Update()
         {
-            if (UI.UIState.IsPaused)
+            if (UI.UIState.IsPaused || UI.UIState.IsRunMenuOpen)
             {
                 HoldDeadEyeTimers(Time.unscaledDeltaTime); // real-time timers shouldn't run out while paused
                 return;
@@ -148,12 +152,14 @@ namespace SandHouse.Player
             if (IsMantling)
             {
                 IsWallRunning = false;
+                StopWallClimb();
                 UpdateMantle(dt);
                 return;
             }
             if (IsSwinging)
             {
                 IsWallRunning = false;
+                StopWallClimb();
                 UpdateLasso(dt);
                 return;
             }
@@ -164,6 +170,7 @@ namespace SandHouse.Player
             if (TryLasso())
             {
                 IsWallRunning = false;
+                StopWallClimb();
                 return;
             }
             TryDeadEyeDive();
@@ -172,12 +179,15 @@ namespace SandHouse.Player
             UpdateSlideState();
             UpdateCrouch(dt);
 
-            if (IsDashing) UpdateDashVelocity(dt);
-            else if (IsSliding) UpdateSlideVelocity(dt);
-            else if (IsRolling) UpdateRollVelocity(dt);
-            else if (!IsSlamming && !IsDiving) UpdateHorizontal(dt);
-
-            UpdateWallRun(dt);
+            bool climbHandled = UpdateWallClimb(dt);
+            if (!climbHandled)
+            {
+                if (IsDashing) UpdateDashVelocity(dt);
+                else if (IsSliding) UpdateSlideVelocity(dt);
+                else if (IsRolling) UpdateRollVelocity(dt);
+                else if (!IsSlamming && !IsDiving) UpdateHorizontal(dt);
+                UpdateWallRun(dt);
+            }
             UpdateVertical(dt);
             Move(dt);
 
@@ -199,6 +209,7 @@ namespace SandHouse.Player
 
             lastGroundedTime = Time.time;
             wallRunTimeUsed = 0f;
+            ResetWallClimb();
             recoilHopsUsed = 0;
             if (justLanded) landedTime = Time.time;
             UpdateBhopChain();
@@ -321,7 +332,7 @@ namespace SandHouse.Player
             if (IsDashing && !IsGrounded) verticalVelocity = 0f; // air dashes hold your height
             else if (IsWallRunning && verticalVelocity <= 0f)
                 verticalVelocity = Mathf.Max(verticalVelocity - gravity * wallRunGravityScale * dt, -wallRunMaxFallSpeed);
-            else verticalVelocity -= gravity * dt;
+            else if (!IsWallClimbing) verticalVelocity -= gravity * dt;
             if (IsSlamming) verticalVelocity = Mathf.Min(verticalVelocity, -slamSpeed);
         }
 
@@ -329,6 +340,7 @@ namespace SandHouse.Player
         {
             Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
             if (IsWallRunning) velocity -= wallRunNormal * wallRunStickSpeed;
+            if (IsWallClimbing) velocity -= wallClimbNormal * wallRunStickSpeed;
 
             // On the ground, run along the surface so we follow slopes instead of launching off them.
             if (IsGrounded && verticalVelocity <= 0f && horizontalVelocity.sqrMagnitude > 0.0001f)
@@ -337,20 +349,77 @@ namespace SandHouse.Player
                 velocity = along + Vector3.up * verticalVelocity;
             }
 
+            StopGroundMovementAtWall(ref velocity, dt);
             CollisionFlags flags = controller.Move(velocity * dt);
 
             if ((flags & CollisionFlags.Above) != 0 && verticalVelocity > 0f)
+            {
                 verticalVelocity = 0f;
+                StopWallClimb();
+            }
 
             // Lose speed into walls instead of keeping it "stored" while pressed against them.
             if ((flags & CollisionFlags.Sides) != 0)
             {
-                if (Time.time - wallHitTime > 0.3f || horizontalVelocity.magnitude > speedBeforeWallHit)
-                    speedBeforeWallHit = horizontalVelocity.magnitude;
-                wallHitTime = Time.time;
+                RememberWallImpact();
                 Vector3 actual = controller.velocity;
                 horizontalVelocity = Vector3.ClampMagnitude(new Vector3(actual.x, 0f, actual.z), horizontalVelocity.magnitude);
             }
+        }
+
+        void StopGroundMovementAtWall(ref Vector3 velocity, float dt)
+        {
+            // CharacterController.Move normally projects blocked motion along a wall.
+            // Walking into one should stop, while movement abilities retain their own collision behavior.
+            if (!IsGrounded || verticalVelocity > 0f || dt <= 0f || IsDashing || IsSliding ||
+                IsRolling || IsSlamming || IsDiving || IsWallRunning || IsWallClimbing) return;
+
+            Vector3 horizontal = new Vector3(velocity.x, 0f, velocity.z);
+            float distance = horizontal.magnitude * dt;
+            if (distance < 0.00001f) return;
+            Vector3 direction = horizontal.normalized;
+
+            // Shrink the query clear of skin contacts. Raise its bottom above the
+            // controller's step height so ordinary stairs don't become blocking walls.
+            float radius = Mathf.Max(0.01f, controller.radius - controller.skinWidth - 0.01f);
+            float inset = controller.radius - radius;
+            float topHeight = controller.height - controller.radius;
+            float bottomHeight = Mathf.Min(topHeight, Mathf.Max(controller.radius, controller.stepOffset + radius + 0.02f));
+            Vector3 bottom = transform.position + Vector3.up * bottomHeight;
+            Vector3 top = transform.position + Vector3.up * topHeight;
+            const float minApproach = 0.05f;
+            const float clearance = 0.005f;
+            float contactPadding = inset + controller.skinWidth + clearance;
+            float nearest = distance;
+            bool blocked = false;
+            int count = Physics.CapsuleCastNonAlloc(bottom, top, radius, direction, GroundWallHits,
+                distance + contactPadding / minApproach, obstructionMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < count; i++)
+            {
+                RaycastHit hit = GroundWallHits[i];
+                if (hit.collider.transform.IsChildOf(transform) || Mathf.Abs(hit.normal.y) > 0.25f) continue;
+                float approach = -Vector3.Dot(direction, hit.normal);
+                if (approach < minApproach) continue; // parallel movement and backing away are allowed
+                // Account for the smaller query capsule at oblique approach angles.
+                float allowed = Mathf.Max(0f, hit.distance - contactPadding / approach);
+                if (allowed > nearest) continue;
+                nearest = allowed;
+                blocked = true;
+            }
+            if (!blocked) return;
+
+            RememberWallImpact(); // preserve entry speed for a subsequent jump/mantle slide
+            horizontalVelocity = Vector3.zero;
+            float fraction = nearest / distance;
+            velocity = horizontal * fraction + Vector3.up *
+                (verticalVelocity + (velocity.y - verticalVelocity) * fraction);
+        }
+
+        void RememberWallImpact()
+        {
+            if (Time.time - wallHitTime > 0.3f || horizontalVelocity.magnitude > speedBeforeWallHit)
+                speedBeforeWallHit = horizontalVelocity.magnitude;
+            wallHitTime = Time.time;
         }
 
         void OnControllerColliderHit(ControllerColliderHit hit)
@@ -400,6 +469,7 @@ namespace SandHouse.Player
             wallRunTimeUsed = 0f;
             wallRunJumpArmed = false;
             wallRunReattachTime = float.NegativeInfinity;
+            ResetWallClimb();
         }
     }
 }

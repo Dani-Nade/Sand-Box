@@ -6,6 +6,9 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/_Project/Scenes/RoguelikeRun.unity
+    guid: ea94624d20d96e946be22de995a29652
+  - enabled: 1
     path: Assets/_Project/Scenes/TestArena.unity
     guid: af2cee985b6ff1745814bd287b48f2bf
   - enabled: 1

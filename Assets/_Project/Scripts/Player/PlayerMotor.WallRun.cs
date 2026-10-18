@@ -33,6 +33,7 @@ namespace SandHouse.Player
         float wallRunReattachTime = float.NegativeInfinity;
 
         public bool IsWallRunning { get; private set; }
+        public Vector3 WallRunNormal => IsWallRunning ? wallRunNormal : Vector3.zero;
         public float WallRunTimeLeft => Mathf.Max(0f, wallRunDuration - wallRunTimeUsed);
 
         bool TryWallRunJump()
@@ -57,7 +58,7 @@ namespace SandHouse.Player
         {
             bool wasWallRunning = IsWallRunning;
             IsWallRunning = false;
-            if (!enableWallRun || IsGrounded || IsDashing || IsSlamming || IsDiving ||
+            if (!enableWallRun || IsGrounded || IsDashing || IsSlamming || IsDiving || IsWallClimbing || input.CrouchHeld ||
                 (!wasWallRunning && !input.JumpHeld) || Time.time < wallRunReattachTime ||
                 horizontalVelocity.magnitude < wallRunMinSpeed ||
                 wallRunTimeUsed >= wallRunDuration)
@@ -78,9 +79,12 @@ namespace SandHouse.Player
                 normal.Normalize();
                 // Moving away from the wall must not pull a jump back into another run.
                 if (Vector3.Dot(horizontalVelocity, normal) > 0.5f) continue;
-                Vector3 along = Vector3.ProjectOnPlane(horizontalVelocity, normal);
-                if (along.magnitude < wallRunMinSpeed) continue;
-                Vector3 tangent = along.normalized;
+                // Choose the forward direction along the wall. Using velocity as the
+                // direction also accepted backward momentum and accelerated it forever.
+                Vector3 tangent = Vector3.ProjectOnPlane(FlatForward, normal);
+                if (tangent.sqrMagnitude < 0.1f) continue;
+                tangent.Normalize();
+                if (Vector3.Dot(horizontalVelocity, tangent) < wallRunMinSpeed) continue;
                 float alignment = Vector3.Dot(horizontalVelocity.normalized, tangent);
                 if (alignment < 0.2f || alignment <= bestAlignment) continue;
                 bestAlignment = alignment;

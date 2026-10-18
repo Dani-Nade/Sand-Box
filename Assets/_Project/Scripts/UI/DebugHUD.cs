@@ -15,6 +15,7 @@ namespace SandHouse.UI
         [SerializeField] PlayerMotor motor;
         [SerializeField] WeaponInventory weapons;
         [SerializeField] bool showMovementStats = true;
+        [SerializeField] bool showControls = true;
 
         static readonly Color HitColor = Color.white;
         static readonly Color CritColor = new Color(1f, 0.85f, 0.2f);
@@ -98,7 +99,7 @@ namespace SandHouse.UI
                 fpsSmoothed = Mathf.Lerp(fpsSmoothed, 1f / Mathf.Max(dt, 0.0001f), 0.05f);
                 statsText.text =
                     $"Speed {motor.HorizontalSpeed:0.0} m/s\nVert {motor.Velocity.y:0.0} m/s\n{StateName()}\n" +
-                    $"Wall run {motor.WallRunTimeLeft:0.0}s   Recoil hops {motor.RecoilHopsLeft}   Bhop x{motor.BunnyHopChain}\n" +
+                    $"Wall run {motor.WallRunTimeLeft:0.0}s   Climb {motor.WallClimbHeightLeft:0.0}m   Recoil hops {motor.RecoilHopsLeft}   Bhop x{motor.BunnyHopChain}\n" +
                     $"{fpsSmoothed:0} fps";
             }
 
@@ -153,6 +154,7 @@ namespace SandHouse.UI
             if (motor.IsDashing) return "DASH";
             if (motor.IsSwinging) return "SWING";
             if (motor.IsMantling) return "MANTLE";
+            if (motor.IsWallClimbing) return "WALL CLIMB";
             if (motor.IsWallRunning) return "WALL RUN";
             if (motor.IsSlamming) return "SLAM";
             if (motor.IsDiving) return "DIVE";
@@ -222,18 +224,20 @@ namespace SandHouse.UI
 
             var help = UIFactory.CreateText(root, "Controls",
                 "WASD move   Shift dash (3 charges, works in the air)   Space jump   Ctrl crouch\n" +
-                "LMB shoot   R reload   1-4 / scroll = switch weapon   Esc pause   Hold Tab = upgrade stats\n" +
+                "LMB shoot   R reload   1-4 / scroll = switch weapon   Esc pause   Hold Tab = stats + owned upgrades\n" +
                 "Dash + Space = dash jump      Shotgun at the ground in the air = shotgun jump\n" +
-                "Run/dash + hold Ctrl = slide      Jump into ledge + W = mantle\n" +
+                "Run/dash + hold Ctrl = slide      Jump into wall + hold W = climb / mantle\n" +
                 "Ctrl at the END of a mantle = mantle slide\n" +
                 "Hold Space beside a wall in the air = wall run; release + press Space = jump off\n" +
+                "W + hold Space facing a wall = climb; A/D sideways; Ctrl drop; Space again = push off\n" +
                 "A/D + turn in air = air strafe\n" +
                 "Hold Q = lasso (Space = lasso jump)      F = Dead Eye dive\n" +
                 "Ctrl high in the air = slam (Space on landing = slam jump)\n" +
                 "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop\n" +
                 "Jump again right as you land = bunny hop (keeps speed, chains add speed)",
                 19, TextAnchor.UpperRight, UIFactory.MutedTextColor);
-            help.rectTransform.Place(new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(1000f, 260f));
+            help.rectTransform.Place(new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(1000f, 310f));
+            help.gameObject.SetActive(showControls);
         }
 
         static void BuildCrosshair(Transform parent)

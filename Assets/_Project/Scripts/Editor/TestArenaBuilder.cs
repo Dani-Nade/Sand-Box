@@ -380,7 +380,7 @@ namespace SandHouse.Editor
         static void BuildMovementTech(Transform parent)
         {
             // Mantle walls. Max mantle reach is 1.5 m above your feet, so ~2.8 m walls need a jump at the peak;
-            // the 3.2 m wall is out of reach on purpose. Run/dash at them and press Ctrl at the end of the climb to mantle-slide.
+            // the 3.2 m wall needs the wall climb. Run/dash at them and press Ctrl at the end of the climb to mantle-slide.
             float[] heights = { 1f, 1.5f, 2f, 2.5f, 3.2f };
             for (int i = 0; i < heights.Length; i++)
             {
@@ -389,6 +389,16 @@ namespace SandHouse.Editor
                 Label($"{heights[i]:0.#} m", parent, new Vector3(x, 0.04f, 21.8f), Quaternion.Euler(90f, 0f, 0f), 0.08f);
             }
             Label("MANTLE  (jump + hold W)   /   MANTLE SLIDE  (run in, press Ctrl as you reach the top)", parent, new Vector3(-3f, 4f, 25.2f), Quaternion.identity, 0.045f);
+
+            // Climb-height checks: reachable walls and one deliberately above the climb ceiling.
+            float[] climbHeights = { 4f, 6f, 8f };
+            for (int i = 0; i < climbHeights.Length; i++)
+            {
+                float x = 18f + i * 4f;
+                BoxOnFloor($"Climb Wall {climbHeights[i]}m", parent, x, 24f, new Vector3(3f, climbHeights[i], 1.5f), mats.Wall);
+                Label($"CLIMB {climbHeights[i]} m", parent, new Vector3(x, 0.04f, 22.5f), Quaternion.Euler(90f, 0f, 0f), 0.045f);
+            }
+            Label("WALL CLIMB  (jump + hold W/Space; A/D sideways; Ctrl drop)", parent, new Vector3(22f, 9f, 24f), Quaternion.identity, 0.04f);
 
             // Wall run corridor: hold Space beside either wall, release and press again to jump off.
             const float corridorLeft = 8f, corridorRight = 12f, corridorStart = 28f, corridorLength = 16f, goalHeight = 1.5f;

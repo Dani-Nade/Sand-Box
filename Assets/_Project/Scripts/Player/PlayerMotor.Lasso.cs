@@ -142,6 +142,7 @@ namespace SandHouse.Player
             verticalVelocity = jump ? Mathf.Max(v.y, 0f) + lassoJumpUpSpeed : v.y;
             isJumping = false;
             wallRunTimeUsed = 0f; // reward chaining: a fresh wall run after a swing
+            ResetWallClimb();
             DetachLasso();
         }
 

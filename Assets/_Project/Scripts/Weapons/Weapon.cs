@@ -67,7 +67,11 @@ namespace SandHouse.Weapons
         public WeaponData Data => data;
         public string DisplayName => data != null ? data.displayName : name;
         public int Ammo { get; private set; }
-        public int MagazineSize => data != null ? data.magazineSize : 0;
+        public int MagazineSize => data != null ? Mathf.Max(1, Mathf.CeilToInt(data.magazineSize * (Upgrades != null ? Upgrades.MagazineMultiplier : 1f))) : 0;
+        public float FireInterval => data == null ? 0f : data.fireInterval / (Upgrades != null ? Upgrades.FireRateMultiplier : 1f);
+        public float ReloadTimeMultiplier => Upgrades != null ? Upgrades.ReloadTimeMultiplier : 1f;
+        protected virtual bool SupportsGunUpgrades => false;
+        protected GunUpgrades Upgrades => SupportsGunUpgrades && stats != null ? stats.GunUpgrades : null;
         public bool IsReloading { get; private set; }
         public float ReloadProgress { get; private set; }
         /// <summary>0 = in hand, 1 = lowered out of view. Set by WeaponInventory while switching.</summary>
@@ -129,7 +133,7 @@ namespace SandHouse.Weapons
         {
             if (data == null || input == null) return;
 
-            bool handsBusy = motor != null && (motor.IsMantling || motor.IsRolling);
+            bool handsBusy = motor != null && (motor.IsMantling || motor.IsRolling || motor.IsWallClimbing);
             if (PlayerLook.CursorLocked && !handsBusy && Holster < 0.05f)
                 HandleInput();
 
@@ -155,7 +159,7 @@ namespace SandHouse.Weapons
         {
             Ammo--;
             bool deadEye = motor != null && motor.IsDeadEye;
-            nextFireTime = Time.time + data.fireInterval * (deadEye ? data.deadEyeFireIntervalMultiplier : 1f);
+            nextFireTime = Time.time + FireInterval * (deadEye ? data.deadEyeFireIntervalMultiplier : 1f);
             kick = 1f;
             cycleTimer = data.cycleTime;
             spinTarget += spinPerShot;
@@ -175,31 +179,25 @@ namespace SandHouse.Weapons
         /// <summary>What actually happens when this weapon fires.</summary>
         protected abstract void Shoot(Ray aim);
 
-        protected float StatDamageMultiplier => stats != null ? stats.WeaponDamageMultiplier : 1f;
+        protected float StatDamageMultiplier => (stats != null ? stats.WeaponDamageMultiplier : 1f)
+                                                * (Upgrades != null ? Upgrades.DamageMultiplier : 1f);
 
         /// <summary>Damages whatever was hit (hitbox multipliers and stats applied) and reports the hit.</summary>
-        protected void ApplyDamage(Collider collider, Rigidbody body, Vector3 point, Vector3 direction, float baseDamage)
+        protected void ApplyDamage(Collider collider, Rigidbody body, Vector3 point, Vector3 direction, float baseDamage, float magicDamage = 0f)
         {
             if (body != null && !body.isKinematic)
                 body.AddForceAtPosition(direction * data.impactForce, point, ForceMode.Impulse);
 
-            IDamageable target;
-            float multiplier = 1f;
+            IDamageable target = DamageTarget(collider);
             var hitbox = collider.GetComponent<Hitbox>();
-            if (hitbox != null)
-            {
-                target = hitbox.Owner;
-                multiplier = hitbox.DamageMultiplier;
-            }
-            else
-            {
-                target = collider.GetComponentInParent<IDamageable>();
-            }
+            float multiplier = hitbox != null ? hitbox.DamageMultiplier : 1f;
             if (target == null) return;
+            if (target is Health health && health.IsDead) return;
 
             var info = new DamageInfo
             {
-                Amount = baseDamage * multiplier * StatDamageMultiplier,
+                Amount = multiplier * (baseDamage * StatDamageMultiplier
+                    + magicDamage * (stats != null ? stats.MagicDamageMultiplier : 1f)),
                 Point = point,
                 Direction = direction,
                 Source = gameObject,
@@ -209,7 +207,26 @@ namespace SandHouse.Weapons
             ReportHit(new HitResult { Point = point, Damage = info.Amount, IsCritical = info.IsCritical, Killed = killed });
         }
 
-        protected void ReportHit(HitResult hit) => HitTarget?.Invoke(hit);
+        protected static IDamageable DamageTarget(Collider collider)
+        {
+            var hitbox = collider.GetComponent<Hitbox>();
+            return hitbox != null ? hitbox.Owner : collider.GetComponentInParent<IDamageable>();
+        }
+
+        protected void ReportHit(HitResult hit)
+        {
+            if (hit.Killed) Upgrades?.HealOnGunKill();
+            HitTarget?.Invoke(hit);
+        }
+
+        /// <summary>Restocks between rooms / on a fresh run, including weapons not yet equipped.</summary>
+        public void Restock()
+        {
+            CancelReload();
+            if (stats == null) stats = GetComponentInParent<PlayerStats>();
+            Ammo = MagazineSize;
+            nextFireTime = 0f;
+        }
 
         // ---------------------------------------------------------------- reloading
 
@@ -234,13 +251,13 @@ namespace SandHouse.Weapons
             {
                 while (Ammo < MagazineSize)
                 {
-                    yield return Progress(data.roundReloadTime);
+                    yield return Progress(data.roundReloadTime * ReloadTimeMultiplier);
                     Ammo++;
                 }
             }
             else
             {
-                yield return Progress(data.reloadTime);
+                yield return Progress(data.reloadTime * ReloadTimeMultiplier);
                 Ammo = MagazineSize;
             }
             ReloadProgress = 0f;

@@ -28,7 +28,9 @@ namespace SandHouse.Weapons
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.name = "Impact";
-            Object.Destroy(go.GetComponent<Collider>());
+            var collider = go.GetComponent<Collider>();
+            collider.enabled = false; // Destroy is deferred; never let one pellet's VFX block the next.
+            Object.Destroy(collider);
             go.transform.position = hit.point + hit.normal * 0.005f;
             go.transform.localScale = Vector3.one * ImpactSize;
             // Follow moving targets. Parent to the target root (unscaled) so the marker doesn't get squashed.
