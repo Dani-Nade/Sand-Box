@@ -67,6 +67,10 @@ namespace SandHouse.Weapons
         [SerializeField] Vector3 mantleRotation = new Vector3(35f, 0f, -10f);
         [SerializeField] float mantleBlendSpeed = 14f;
 
+        [Header("Wall Run Pose")]
+        [SerializeField] Vector3 wallRunPosition = new Vector3(-0.025f, -0.07f, -0.025f);
+        [SerializeField] Vector3 wallRunRotation = new Vector3(10f, -8f, -8f);
+
         PlayerInputReader input;
         WeaponInventory weapons;
         Vector3 restPosition;
@@ -75,7 +79,7 @@ namespace SandHouse.Weapons
         Vector3 lookSwayPos, lookSwayRot;
         float strafeRoll, verticalOffset;
         float landOffset, landVelocity;
-        float dashBlend, crouchBlend, slideBlend, mantleBlend;
+        float dashBlend, crouchBlend, slideBlend, mantleBlend, wallRunBlend;
         float lastShotTime = float.NegativeInfinity;
 
         void Awake()
@@ -90,6 +94,16 @@ namespace SandHouse.Weapons
         {
             if (motor != null) motor.Landed += OnLanded;
             if (weapons != null) weapons.Fired += OnFired;
+        }
+
+        void Start()
+        {
+            // Existing scenes get the hand animation without rebuilding their player hierarchy.
+            if (motor == null) motor = GetComponentInParent<PlayerMotor>();
+            if (motor == null || transform.parent == null) return;
+            var hands = GetComponent<WallRunHandAnimation>();
+            if (hands == null) hands = gameObject.AddComponent<WallRunHandAnimation>();
+            hands.Initialize(motor, transform.parent);
         }
 
         void OnDisable()
@@ -159,24 +173,28 @@ namespace SandHouse.Weapons
             crouchBlend = Mathf.MoveTowards(crouchBlend, motor.IsCrouching && !motor.IsSliding ? 1f : 0f, poseBlendSpeed * dt);
             slideBlend = Mathf.MoveTowards(slideBlend, motor.IsSliding ? 1f : 0f, poseBlendSpeed * dt);
             // Gun drops out of view while the hands are busy (climbing, rolling).
-            bool handsBusy = motor.IsMantling || motor.IsRolling;
+            bool handsBusy = motor.IsMantling || motor.IsRolling || motor.IsWallClimbing;
             mantleBlend = Mathf.MoveTowards(mantleBlend, handsBusy ? 1f : 0f, mantleBlendSpeed * dt);
+            wallRunBlend = Mathf.MoveTowards(wallRunBlend, motor.IsWallRunning ? 1f : 0f, poseBlendSpeed * dt);
             float dashEase = Mathf.SmoothStep(0f, 1f, dashBlend);
             float crouchEase = Mathf.SmoothStep(0f, 1f, crouchBlend);
             float slideEase = Mathf.SmoothStep(0f, 1f, slideBlend);
             float mantleEase = Mathf.SmoothStep(0f, 1f, mantleBlend);
+            float wallRunEase = Mathf.SmoothStep(0f, 1f, wallRunBlend);
 
             Vector3 position = lookSwayPos + bobPos
                                + new Vector3(0f, verticalOffset + landOffset, 0f)
                                + dashPosition * dashEase
                                + crouchPosition * crouchEase
                                + slidePosition * slideEase
-                               + mantlePosition * mantleEase;
+                               + mantlePosition * mantleEase
+                               + wallRunPosition * wallRunEase;
             Vector3 euler = lookSwayRot
                             + new Vector3(-verticalOffset * 100f, 0f, strafeRoll + bobRot + crouchRoll * crouchEase)
                             + dashRotation * dashEase
                             + slideRotation * slideEase
-                            + mantleRotation * mantleEase;
+                            + mantleRotation * mantleEase
+                            + wallRunRotation * wallRunEase;
 
             transform.localPosition = restPosition + position * intensity;
             transform.localRotation = restRotation * Quaternion.Euler(euler * intensity);

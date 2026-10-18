@@ -9,11 +9,28 @@ namespace SandHouse.Player
     /// </summary>
     public class PlayerInputReader : MonoBehaviour
     {
+        [Tooltip("Optional action asset override. Leave empty to use the project's input actions.")]
+        [SerializeField] InputActionAsset actionAsset;
         InputActionMap map;
         InputAction move, look, jump, dash, crouch, attack, reload, lasso, deadEye, stats, nextWeapon, previousWeapon;
         readonly InputAction[] weaponSlots = new InputAction[4];
+        bool movementNeedsNeutral = true;
+        bool hasInputFocus = true;
 
-        public Vector2 Move => move.ReadValue<Vector2>();
+        public Vector2 Move
+        {
+            get
+            {
+                if (move == null || !isActiveAndEnabled || !hasInputFocus) return Vector2.zero;
+                Vector2 value = move.ReadValue<Vector2>();
+                if (movementNeedsNeutral)
+                {
+                    if (value.sqrMagnitude > 0.0001f) return Vector2.zero;
+                    movementNeedsNeutral = false;
+                }
+                return value;
+            }
+        }
         public Vector2 Look => look.ReadValue<Vector2>();
         public bool LookIsGamepad => look.activeControl?.device is Gamepad;
 
@@ -40,7 +57,12 @@ namespace SandHouse.Player
         void Awake()
         {
             Settings.GameSettings.LoadBindings(); // apply the player's saved key bindings
-            map = InputSystem.actions.FindActionMap("Player", true);
+            var actions = actionAsset != null ? actionAsset : InputSystem.actions;
+            map = actions.FindActionMap("Player", true);
+            // The template also binds every generic joystick / XR axis. Unrelated HID devices
+            // can report a resting full-back axis and win over WASD's input magnitude.
+            // This desktop game supports keyboard/mouse and gamepads, not those template inputs.
+            map.bindingMask = InputBinding.MaskByGroups("Keyboard&Mouse", "Gamepad");
             move = map.FindAction("Move", true);
             look = map.FindAction("Look", true);
             jump = map.FindAction("Jump", true);
@@ -57,6 +79,26 @@ namespace SandHouse.Player
                 weaponSlots[i] = map.FindAction($"Weapon{i + 1}", true);
         }
 
-        void OnEnable() => map?.Enable();
+        void OnEnable()
+        {
+            // A held/stale direction from the editor or a previous session must not start walking.
+            movementNeedsNeutral = true;
+            map?.Enable();
+        }
+
+        void Update()
+        {
+            // Observe neutral even when the motor is paused or no movement getter runs this frame.
+            if (movementNeedsNeutral && hasInputFocus && move != null && move.ReadValue<Vector2>().sqrMagnitude <= 0.0001f)
+                movementNeedsNeutral = false;
+        }
+
+        void OnDisable() => movementNeedsNeutral = true;
+
+        void OnApplicationFocus(bool focused)
+        {
+            hasInputFocus = focused;
+            movementNeedsNeutral = true;
+        }
     }
 }

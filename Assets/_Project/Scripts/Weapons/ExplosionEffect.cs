@@ -16,7 +16,9 @@ namespace SandHouse.Weapons
         {
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.name = "Explosion";
-            Destroy(go.GetComponent<Collider>());
+            var collider = go.GetComponent<Collider>();
+            collider.enabled = false;
+            Destroy(collider);
             go.transform.position = position;
             var renderer = go.GetComponent<Renderer>();
             if (material != null) renderer.sharedMaterial = material;

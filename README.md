@@ -2,6 +2,10 @@
 
 A two-person indie game built in Unity.
 
+## Play the roguelike prototype
+
+Open `Assets/_Project/Scenes/RoguelikeRun.unity` and press Play (or **Esc > Start New Run** from the arena). Clear three combat levels, choosing one of three random gun upgrades after each clear. Kills no longer buy upgrades. [Run details and controls](docs/RoguelikeRun.md).
+
 ## Requirements
 
 | Tool | Version | Notes |

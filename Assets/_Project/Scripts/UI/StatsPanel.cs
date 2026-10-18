@@ -8,8 +8,8 @@ using UnityEngine.UI;
 namespace SandHouse.UI
 {
     /// <summary>
-    /// Bottom-left stat investment panel: weapon damage, magic damage and health levels plus the HP bar.
-    /// Hold Stats (Tab) to upgrade: the cursor is freed and you click the stat you want (or press 1/2/3)
+    /// Stat investment / gun upgrades plus the HP bar.
+    /// Hold Stats (Tab) to view earned gun upgrades and spend base-stat points (1/2/3).
     /// while you keep moving. Let go of Tab to close.
     /// </summary>
     public class StatsPanel : MonoBehaviour
@@ -40,6 +40,9 @@ namespace SandHouse.UI
         }
 
         readonly StatRow[] rows = new StatRow[RowInfos.Length];
+        readonly Text[] upgradeTitles = new Text[GunUpgrades.Count];
+        GameObject upgradePanel;
+        GunUpgrades gunUpgrades;
         Image panel, hpFill;
         Text pointsText, hpText, hintText;
         bool investing;
@@ -49,19 +52,33 @@ namespace SandHouse.UI
         void OnEnable()
         {
             if (stats != null) stats.Changed += Refresh;
+            ConnectGunUpgrades();
         }
 
         void OnDisable()
         {
-            if (stats != null) stats.Changed -= Refresh;
             SetInvesting(false);
+            if (stats != null) stats.Changed -= Refresh;
+            if (gunUpgrades != null) gunUpgrades.Changed -= Refresh;
+            gunUpgrades = null;
         }
 
-        void Start() => Refresh();
+        void Start()
+        {
+            ConnectGunUpgrades();
+            Refresh();
+        }
+
+        void ConnectGunUpgrades()
+        {
+            if (gunUpgrades != null || stats == null || stats.GunUpgrades == null) return;
+            gunUpgrades = stats.GunUpgrades;
+            gunUpgrades.Changed += Refresh;
+        }
 
         void Update()
         {
-            SetInvesting(input != null && input.StatsHeld && !UIState.IsPaused);
+            SetInvesting(input != null && input.StatsHeld && !UIState.IsPaused && !UIState.IsRunMenuOpen);
 
             if (investing && Keyboard.current != null)
             {
@@ -90,6 +107,7 @@ namespace SandHouse.UI
         {
             if (investing == on) return;
             investing = on;
+            if (upgradePanel != null) upgradePanel.SetActive(on);
             UIState.SetOpen(this, on);
             Refresh();
         }
@@ -102,6 +120,7 @@ namespace SandHouse.UI
         void Refresh()
         {
             if (stats == null || rows[0] == null) return;
+            ConnectGunUpgrades();
 
             pointsText.text = stats.UnspentPoints == 1 ? "1 POINT" : $"{stats.UnspentPoints} POINTS";
             pointsText.color = stats.UnspentPoints > 0 ? UIFactory.AccentColor : UIFactory.MutedTextColor;
@@ -116,11 +135,19 @@ namespace SandHouse.UI
                 rows[i].Plus.text = canUpgrade ? $"+ [{i + 1}]" : "";
             }
 
+            for (int i = 0; i < GunUpgrades.Count; i++)
+            {
+                var type = (GunUpgradeType)i;
+                int count = gunUpgrades != null ? gunUpgrades.GetStacks(type) : 0;
+                bool capped = count >= GunUpgrades.MaxStacks(type);
+                upgradeTitles[i].text = $"{GunUpgrades.DisplayName(type)}   {count}/{GunUpgrades.MaxStacks(type)}   {(capped ? "MAX" : count > 0 ? "OWNED" : "NOT FOUND")}";
+            }
+
             panel.color = investing ? new Color(0.12f, 0.09f, 0.05f, 0.93f) : UIFactory.PanelColor;
             if (investing)
-                hintText.text = stats.UnspentPoints > 0 ? "Click a stat (or 1 / 2 / 3)   -   release TAB to close" : "No points - get kills to earn more";
+                hintText.text = stats.UnspentPoints > 0 ? "1 / 2 / 3: invest in stats - release TAB to close" : "Clear a level for a stat point + gun reward";
             else
-                hintText.text = stats.UnspentPoints > 0 ? "Hold TAB to upgrade" : "Hold TAB for stats";
+                hintText.text = "Hold TAB for stats + earned gun upgrades";
             hintText.color = investing ? Color.white : UIFactory.MutedTextColor;
         }
 
@@ -153,6 +180,33 @@ namespace SandHouse.UI
             hpText.rectTransform.Stretch();
 
             hintText = UIFactory.CreateText(panel.transform, "Hint", "", 17, TextAnchor.MiddleLeft, UIFactory.MutedTextColor).Size(height: 22f);
+            BuildGunUpgrades(canvas.transform);
+        }
+
+        void BuildGunUpgrades(Transform parent)
+        {
+            var background = UIFactory.CreatePanel(parent, "Gun Upgrades");
+            background.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(760f, 0f));
+            UIFactory.VerticalLayout(background.gameObject, spacing: 5f, padding: 14);
+            background.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            UIFactory.CreateText(background.transform, "Title", "GUN UPGRADES - CURRENT RUN", 26, color: UIFactory.AccentColor).Size(height: 34f);
+            UIFactory.CreateText(background.transform, "Rules", "Clear each level: choose 1 of 3 random upgrades. This list is read-only.", 17).Size(height: 25f);
+            for (int i = 0; i < GunUpgrades.Count; i++)
+            {
+                var type = (GunUpgradeType)i;
+                var entry = UIFactory.CreatePanel(background.transform, GunUpgrades.DisplayName(type)).Size(height: 63f);
+                var title = UIFactory.CreateText(entry.transform, "Title", "", 22, TextAnchor.UpperLeft, shadow: false);
+                title.rectTransform.Stretch();
+                title.rectTransform.offsetMin = new Vector2(12f, 29f);
+                title.rectTransform.offsetMax = new Vector2(-12f, -4f);
+                upgradeTitles[i] = title;
+                var description = UIFactory.CreateText(entry.transform, "Description", GunUpgrades.Description(type), 17, color: UIFactory.MutedTextColor, shadow: false);
+                description.rectTransform.Stretch();
+                description.rectTransform.offsetMin = new Vector2(12f, 4f);
+                description.rectTransform.offsetMax = new Vector2(-12f, -33f);
+            }
+            upgradePanel = background.gameObject;
+            upgradePanel.SetActive(false);
         }
 
         /// <summary>A whole stat row is one button: hover highlights it, click upgrades it.</summary>

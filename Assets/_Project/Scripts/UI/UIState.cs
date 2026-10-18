@@ -15,6 +15,8 @@ namespace SandHouse.UI
         public static bool AnyMenuOpen => openMenus.Count > 0;
         /// <summary>True while the pause menu has the game frozen.</summary>
         public static bool IsPaused { get; internal set; }
+        /// <summary>A mandatory run reward / results screen owns time and the cursor.</summary>
+        public static bool IsRunMenuOpen { get; internal set; }
 
         public static event Action Changed;
 
@@ -30,6 +32,7 @@ namespace SandHouse.UI
         {
             openMenus.Clear();
             IsPaused = false;
+            IsRunMenuOpen = false;
             Changed = null;
         }
     }

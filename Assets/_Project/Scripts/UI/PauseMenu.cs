@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using SandHouse.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace SandHouse.UI
@@ -93,6 +94,7 @@ namespace SandHouse.UI
 
         void Update()
         {
+            if (UIState.IsRunMenuOpen) return;
             if (rebinding != null || !pauseAction.WasPressedThisFrame()) return;
 
             if (!UIState.IsPaused) Pause();
@@ -103,6 +105,7 @@ namespace SandHouse.UI
 
         public void Pause()
         {
+            if (UIState.IsRunMenuOpen) return;
             UIState.IsPaused = true;
             savedTimeScale = Time.timeScale;
             Time.timeScale = 0f;
@@ -263,6 +266,12 @@ namespace SandHouse.UI
             var page = CreatePage(parent, "PAUSED", 460f);
             UIFactory.CreateButton(page, "Resume", Resume).Size(height: 56f);
             UIFactory.CreateButton(page, "Settings", () => ShowPage(settingsPage)).Size(height: 56f);
+            if (Application.CanStreamedLevelBeLoaded("RoguelikeRun"))
+                UIFactory.CreateButton(page, "Start New Run", () =>
+                {
+                    Resume();
+                    SceneManager.LoadScene("RoguelikeRun");
+                }).Size(height: 56f);
             UIFactory.CreateButton(page, "Exit", ExitGame).Size(height: 56f);
             return page.gameObject;
         }

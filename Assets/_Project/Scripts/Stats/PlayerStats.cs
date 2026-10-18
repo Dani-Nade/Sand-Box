@@ -12,7 +12,7 @@ namespace SandHouse.Stats
     }
 
     /// <summary>
-    /// Roguelite stat investment: earn points (per kill), spend them to level up
+    /// Roguelite stat investment: earn points for level clears, spend them to level up
     /// weapon damage, magic damage and max health.
     /// Other systems read the multipliers: weapons use <see cref="WeaponDamageMultiplier"/>,
     /// abilities use <see cref="MagicDamageMultiplier"/> (the ground slam, until we add real magic).
@@ -22,7 +22,6 @@ namespace SandHouse.Stats
     {
         [Header("Points")]
         [SerializeField] int startingPoints = 3;
-        [SerializeField] int pointsPerKill = 1;
         [SerializeField, Min(1)] int maxLevel = 10;
 
         [Header("Per Level")]
@@ -41,6 +40,7 @@ namespace SandHouse.Stats
 
         public int UnspentPoints { get; private set; }
         public int MaxLevel => maxLevel;
+        public GunUpgrades GunUpgrades { get; private set; }
         public float WeaponDamageMultiplier => 1f + GetLevel(StatType.WeaponDamage) * weaponDamagePerLevel;
         public float MagicDamageMultiplier => 1f + GetLevel(StatType.MagicDamage) * magicDamagePerLevel;
         public float BonusHealth => GetLevel(StatType.Health) * healthPerLevel;
@@ -50,20 +50,12 @@ namespace SandHouse.Stats
         void Awake()
         {
             health = GetComponent<Health>();
+            GunUpgrades = GetComponent<GunUpgrades>();
+            if (GunUpgrades == null) GunUpgrades = gameObject.AddComponent<GunUpgrades>();
             UnspentPoints = startingPoints;
         }
 
         void Start() => baseMaxHealth = health.Max;
-
-        void OnEnable() => Health.AnyKilled += OnAnyKilled;
-        void OnDisable() => Health.AnyKilled -= OnAnyKilled;
-
-        void OnAnyKilled(Health victim, DamageInfo killingBlow)
-        {
-            if (victim == health || killingBlow.Source == null) return;
-            if (killingBlow.Source.transform.IsChildOf(transform))
-                AddPoints(pointsPerKill);
-        }
 
         public int GetLevel(StatType stat) => levels[(int)stat];
 
@@ -86,6 +78,25 @@ namespace SandHouse.Stats
         {
             if (amount <= 0) return;
             UnspentPoints += amount;
+            Changed?.Invoke();
+        }
+
+        public bool TrySpendPoint()
+        {
+            if (UnspentPoints <= 0) return false;
+            UnspentPoints--;
+            Changed?.Invoke();
+            return true;
+        }
+
+        public void ResetRun()
+        {
+            if (baseMaxHealth <= 0f) baseMaxHealth = health.Max - BonusHealth;
+            Array.Clear(levels, 0, levels.Length);
+            UnspentPoints = startingPoints;
+            health.SetMaxHealth(baseMaxHealth);
+            health.ResetHealth();
+            GunUpgrades.ResetRun();
             Changed?.Invoke();
         }
 

@@ -1,0 +1,8 @@
+{
+    "name": "SandHouse.GunUpgradeTests",
+    "references": ["SandHouse", "UnityEngine.UI", "Unity.InputSystem"],
+    "optionalUnityReferences": ["TestAssemblies"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "autoReferenced": false
+}
