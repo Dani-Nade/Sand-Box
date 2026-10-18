@@ -98,7 +98,7 @@ namespace SandHouse.UI
                 fpsSmoothed = Mathf.Lerp(fpsSmoothed, 1f / Mathf.Max(dt, 0.0001f), 0.05f);
                 statsText.text =
                     $"Speed {motor.HorizontalSpeed:0.0} m/s\nVert {motor.Velocity.y:0.0} m/s\n{StateName()}\n" +
-                    $"Wall bounces {motor.MaxWallBounces - motor.WallBouncesUsed}/{motor.MaxWallBounces}   Recoil hops {motor.RecoilHopsLeft}   Bhop x{motor.BunnyHopChain}\n" +
+                    $"Wall run {motor.WallRunTimeLeft:0.0}s   Recoil hops {motor.RecoilHopsLeft}   Bhop x{motor.BunnyHopChain}\n" +
                     $"{fpsSmoothed:0} fps";
             }
 
@@ -153,6 +153,7 @@ namespace SandHouse.UI
             if (motor.IsDashing) return "DASH";
             if (motor.IsSwinging) return "SWING";
             if (motor.IsMantling) return "MANTLE";
+            if (motor.IsWallRunning) return "WALL RUN";
             if (motor.IsSlamming) return "SLAM";
             if (motor.IsDiving) return "DIVE";
             if (motor.IsRolling) return "ROLL";
@@ -225,7 +226,8 @@ namespace SandHouse.UI
                 "Dash + Space = dash jump      Shotgun at the ground in the air = shotgun jump\n" +
                 "Run/dash + hold Ctrl = slide      Jump into ledge + W = mantle\n" +
                 "Ctrl at the END of a mantle = mantle slide\n" +
-                "Space near wall in air = wall bounce      A/D + turn in air = air strafe\n" +
+                "Hold Space beside a wall in the air = wall run; release + press Space = jump off\n" +
+                "A/D + turn in air = air strafe\n" +
                 "Hold Q = lasso (Space = lasso jump)      F = Dead Eye dive\n" +
                 "Ctrl high in the air = slam (Space on landing = slam jump)\n" +
                 "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop\n" +

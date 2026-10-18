@@ -14,7 +14,7 @@ namespace SandHouse.Player
     ///   PlayerMotor.Landing.cs    hard landings, fall damage, landing roll
     ///   PlayerMotor.Slide.cs      sliding
     ///   PlayerMotor.Mantle.cs     mantling + timed mantle slide
-    ///   PlayerMotor.WallBounce.cs
+    ///   PlayerMotor.WallRun.cs  timed wall running
     ///   PlayerMotor.AirStrafe.cs  air strafing + air steering
     ///   PlayerMotor.BunnyHop.cs
     ///   PlayerMotor.Lasso.cs      lasso swing / yank
@@ -74,7 +74,7 @@ namespace SandHouse.Player
         [SerializeField] float eyeOffsetFromTop = 0.15f;
 
         [Header("Collision")]
-        [Tooltip("Layers that count as solid for crouching, mantling, wall bounces, lasso and slams.")]
+        [Tooltip("Layers that count as solid for crouching, mantling, wall running, lasso and slams.")]
         [SerializeField] LayerMask obstructionMask = ~(1 << 2);
 
         CharacterController controller;
@@ -124,7 +124,11 @@ namespace SandHouse.Player
             SetHeight(standingHeight);
         }
 
-        void OnDisable() => StopDeadEye();
+        void OnDisable()
+        {
+            IsWallRunning = false;
+            StopDeadEye();
+        }
 
         void Update()
         {
@@ -143,11 +147,13 @@ namespace SandHouse.Player
 
             if (IsMantling)
             {
+                IsWallRunning = false;
                 UpdateMantle(dt);
                 return;
             }
             if (IsSwinging)
             {
+                IsWallRunning = false;
                 UpdateLasso(dt);
                 return;
             }
@@ -155,7 +161,11 @@ namespace SandHouse.Player
             UpdateGrounded();
             UpdateLandingTimers(dt);
 
-            if (TryLasso()) return;
+            if (TryLasso())
+            {
+                IsWallRunning = false;
+                return;
+            }
             TryDeadEyeDive();
             TryDash();
             TryStartSlam();
@@ -167,6 +177,7 @@ namespace SandHouse.Player
             else if (IsRolling) UpdateRollVelocity(dt);
             else if (!IsSlamming && !IsDiving) UpdateHorizontal(dt);
 
+            UpdateWallRun(dt);
             UpdateVertical(dt);
             Move(dt);
 
@@ -187,7 +198,7 @@ namespace SandHouse.Player
             }
 
             lastGroundedTime = Time.time;
-            wallBouncesUsed = 0;
+            wallRunTimeUsed = 0f;
             recoilHopsUsed = 0;
             if (justLanded) landedTime = Time.time;
             UpdateBhopChain();
@@ -281,7 +292,11 @@ namespace SandHouse.Player
 
         void UpdateVertical(float dt)
         {
-            if (TrySlamJump())
+            if (TryWallRunJump())
+            {
+                // handled
+            }
+            else if (TrySlamJump())
             {
                 // handled
             }
@@ -297,11 +312,6 @@ namespace SandHouse.Player
                 isJumping = true;
                 Jumped?.Invoke();
             }
-            else if (input.JumpPressed && !IsGrounded && TryWallBounce())
-            {
-                lastJumpPressedTime = float.NegativeInfinity;
-            }
-
             if (isJumping && verticalVelocity > 0f && !input.JumpHeld)
             {
                 verticalVelocity *= jumpCutMultiplier;
@@ -309,6 +319,8 @@ namespace SandHouse.Player
             }
 
             if (IsDashing && !IsGrounded) verticalVelocity = 0f; // air dashes hold your height
+            else if (IsWallRunning && verticalVelocity <= 0f)
+                verticalVelocity = Mathf.Max(verticalVelocity - gravity * wallRunGravityScale * dt, -wallRunMaxFallSpeed);
             else verticalVelocity -= gravity * dt;
             if (IsSlamming) verticalVelocity = Mathf.Min(verticalVelocity, -slamSpeed);
         }
@@ -316,6 +328,7 @@ namespace SandHouse.Player
         void Move(float dt)
         {
             Vector3 velocity = horizontalVelocity + Vector3.up * verticalVelocity;
+            if (IsWallRunning) velocity -= wallRunNormal * wallRunStickSpeed;
 
             // On the ground, run along the surface so we follow slopes instead of launching off them.
             if (IsGrounded && verticalVelocity <= 0f && horizontalVelocity.sqrMagnitude > 0.0001f)
@@ -383,6 +396,10 @@ namespace SandHouse.Player
             controller.enabled = true;
             horizontalVelocity = Vector3.zero;
             verticalVelocity = 0f;
+            IsWallRunning = false;
+            wallRunTimeUsed = 0f;
+            wallRunJumpArmed = false;
+            wallRunReattachTime = float.NegativeInfinity;
         }
     }
 }
