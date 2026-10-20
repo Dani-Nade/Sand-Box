@@ -611,8 +611,11 @@ namespace SandHouse.Editor
                 d.fireInterval = 0.22f;
                 d.damage = 25f;
                 d.magazineSize = 6;
-                d.reloadTime = 1.2f;
-                d.reloadStyle = ReloadStyle.Spin;
+                d.reloadOneAtATime = true;
+                d.roundReloadTime = 0.4f;
+                d.reloadOpenTime = 0.35f;
+                d.reloadCloseTime = 0.3f;
+                d.reloadStyle = ReloadStyle.LoadingGate;
                 d.recoilPitch = 2.2f;
                 d.recoilYawRandom = 0.6f;
                 d.modelKickDistance = 0.07f;
@@ -632,6 +635,9 @@ namespace SandHouse.Editor
             GunPart(cylinder, PrimitiveType.Cube, "Cylinder Stripe", new Vector3(0f, 0.042f, 0f), new Vector3(0.012f, 0.006f, 0.08f), Vector3.zero, mats.GunWood);
 
             AddMuzzle(weapon, model, new Vector3(0f, 0.025f, 0.32f));
+
+            // Real model from Blender, if it's been exported (replaces the placeholder above).
+            WeaponModelInstaller.InstallOrnateRevolver(weapon);
             return weapon;
         }
 

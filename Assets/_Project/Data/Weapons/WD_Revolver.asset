@@ -25,16 +25,19 @@ MonoBehaviour:
   falloffEnd: 0
   minDamageMultiplier: 0.3
   magazineSize: 6
-  reloadOneAtATime: 0
+  reloadOneAtATime: 1
   reloadTime: 1.2
-  roundReloadTime: 0.45
+  roundReloadTime: 0.4
+  reloadOpenTime: 0.35
+  reloadCloseTime: 0.3
   autoReloadWhenEmpty: 1
-  reloadStyle: 0
+  reloadStyle: 4
   cycleTime: 0
   recoilPitch: 2.2
   recoilYawRandom: 0.6
   modelKickDistance: 0.07
-  modelKickAngle: 12
+  modelKickAngle: 14
+  modelKickRoll: 10
   modelRecoverySpeed: 14
   recoilHopMultiplier: 1
   deadEyeFireIntervalMultiplier: 0.5

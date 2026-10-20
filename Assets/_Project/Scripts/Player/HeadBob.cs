@@ -74,6 +74,7 @@ namespace SandHouse.Player
         float previousStepSignal;
         float rollTimer;
         float fovPunch;
+        Weapons.WeaponInventory weapons;
 
         /// <summary>Bob cycle angle in radians (0..2π, one cycle = two footsteps).</summary>
         public float Phase { get; private set; }
@@ -89,6 +90,7 @@ namespace SandHouse.Player
         void Awake()
         {
             if (targetCamera == null) targetCamera = GetComponentInChildren<Camera>();
+            weapons = GetComponentInChildren<Weapons.WeaponInventory>(true);
         }
 
         /// <summary>This component's intensity combined with the player's Camera Motion setting.</summary>
@@ -194,6 +196,10 @@ namespace SandHouse.Player
 
             fovPunch = Mathf.Lerp(fovPunch, 0f, 1f - Mathf.Exp(-fovPunchRecovery * dt));
             float targetFov = GameSettings.FieldOfView + (boost + fovPunch) * Motion;
+
+            // Aim-down-sights zoom.
+            var weapon = weapons != null ? weapons.Current : null;
+            if (weapon != null) targetFov *= Mathf.Lerp(1f, weapon.AdsZoom, weapon.AimWeight);
             targetCamera.fieldOfView = Mathf.Lerp(targetCamera.fieldOfView, targetFov, 1f - Mathf.Exp(-fovSmoothing * dt));
         }
 

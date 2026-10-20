@@ -7,6 +7,17 @@ using UnityEngine;
 
 namespace SandHouse.Weapons
 {
+    public enum ReloadPhase
+    {
+        None,
+        /// <summary>One-at-a-time reloads: getting into the reload pose (gate opens, casings drop).</summary>
+        Opening,
+        /// <summary>Loading rounds (ReloadProgress is per round). Whole-magazine reloads use this too.</summary>
+        Loading,
+        /// <summary>One-at-a-time reloads: getting back to firing.</summary>
+        Closing,
+    }
+
     public struct HitResult
     {
         public Vector3 Point;
@@ -41,6 +52,9 @@ namespace SandHouse.Weapons
         [Tooltip("Turns a step on every shot. Auto-found: a child named 'Cylinder'.")]
         [SerializeField] Transform spinPart;
         [SerializeField] float spinPerShot = 60f;
+        [Tooltip("How snappily the spin part turns (higher = faster). With the damping below it overshoots a touch and settles - a visible 'click'.")]
+        [SerializeField] float spinStiffness = 260f;
+        [SerializeField] float spinDamping = 20f;
         [Tooltip("Local axis the spin part turns around (the barrel direction).")]
         [SerializeField] Vector3 spinAxis = Vector3.forward;
         [Tooltip("Swings out and back while cycling. Auto-found: a child named 'Lever'.")]
@@ -48,6 +62,31 @@ namespace SandHouse.Weapons
         [Tooltip("Negative swings the back of the lever down (pivot at the front, like a real lever-action).")]
         [SerializeField] float leverAngle = -55f;
         [SerializeField] Vector3 leverAxis = Vector3.right;
+
+        [Header("Inspect (optional)")]
+        [Tooltip("Animation played when inspecting the weapon (Inspect key). Comes from the model's FBX.")]
+        [SerializeField] AnimationClip inspectClip;
+        [Tooltip("Object the inspect clip animates - the imported model's root.")]
+        [SerializeField] GameObject inspectTarget;
+        [Tooltip("Extra offset while inspecting, so the gun comes towards the middle of the screen.")]
+        [SerializeField] Vector3 inspectOffset = new Vector3(-0.17f, 0.05f, 0.05f);
+        [SerializeField] float inspectBlendTime = 0.3f;
+
+        [Header("Aim Down Sights (hold Aim)")]
+        [Tooltip("Model offset when aiming, relative to its normal spot - brings the sights to the middle of the screen.")]
+        [SerializeField] Vector3 adsOffset = new Vector3(-0.22f, 0.135f, -0.06f);
+        [Tooltip("Camera field of view multiplier while aiming (0.8 = 20% zoom).")]
+        [SerializeField, Range(0.4f, 1f)] float adsZoom = 0.8f;
+        [Tooltip("Spread multiplier while aiming (0.4 = 60% tighter).")]
+        [SerializeField, Range(0f, 1f)] float adsSpreadMultiplier = 0.4f;
+        [SerializeField] float adsBlendTime = 0.18f;
+
+        [Header("Aim At Self")]
+        [Tooltip("Model offset with the gun held to your head, relative to its normal spot. Kept on the right edge of the screen so you can see it.")]
+        [SerializeField] Vector3 selfAimOffset = new Vector3(0.04f, 0.18f, -0.22f);
+        [Tooltip("Model rotation with the gun held to your head (muzzle turned back towards your temple).")]
+        [SerializeField] Vector3 selfAimRotation = new Vector3(10f, -120f, 20f);
+        [SerializeField] float selfAimBlendTime = 0.35f;
 
         [Header("Effects")]
         [SerializeField] protected Material tracerMaterial;
@@ -62,7 +101,12 @@ namespace SandHouse.Weapons
         Coroutine reloadRoutine;
         Vector3 rootRestPosition, modelRestPosition;
         Quaternion rootRestRotation, modelRestRotation, spinRest, leverRest;
-        float kick, cycleTimer, spinAngle, spinTarget;
+        float kick, cycleTimer, spinAngle, spinTarget, spinVelocity, kickRollSign = 1f;
+        float inspectTime = -1f; // < 0 = not inspecting
+        float gateOpen, roundJolt; // LoadingGate pose: smoothed 0..1 open amount, per-round push
+        bool selfAiming;
+        float selfAimWeight, adsWeight;
+        RussianRoulette roulette;
 
         public WeaponData Data => data;
         public string DisplayName => data != null ? data.displayName : name;
@@ -74,11 +118,31 @@ namespace SandHouse.Weapons
         protected GunUpgrades Upgrades => SupportsGunUpgrades && stats != null ? stats.GunUpgrades : null;
         public bool IsReloading { get; private set; }
         public float ReloadProgress { get; private set; }
+        public ReloadPhase ReloadPhase { get; private set; }
+        /// <summary>Spin part (e.g. revolver cylinder), for reload visuals.</summary>
+        public Transform SpinPart => spinPart;
+        public Transform Model => model;
         /// <summary>0 = in hand, 1 = lowered out of view. Set by WeaponInventory while switching.</summary>
         public float Holster { get; set; }
+        public bool IsAimingAtSelf => selfAiming;
+        /// <summary>0..1 how far into aim-down-sights (used for zoom, sway, sensitivity, spread).</summary>
+        public float AimWeight => adsWeight;
+        public float AdsZoom => adsZoom;
+        /// <summary>Spread multiplier from aiming (1 = hip fire).</summary>
+        protected float AimSpreadMultiplier => Mathf.Lerp(1f, adsSpreadMultiplier, adsWeight);
+        /// <summary>Weapons that can be turned on yourself (not throwables).</summary>
+        protected virtual bool SupportsSelfAim => true;
+        public bool CanInspect => inspectClip != null && inspectTarget != null;
+        public bool IsInspecting => inspectTime >= 0f;
 
         public event Action Fired;
         public event Action<HitResult> HitTarget;
+        /// <summary>A reload got going; the argument is how many spent rounds came out (one-at-a-time reloads, after opening).</summary>
+        public event Action<int> ReloadOpened;
+        /// <summary>One round went in (one-at-a-time reloads).</summary>
+        public event Action RoundLoaded;
+        /// <summary>The player shot themselves (aim at self + fire).</summary>
+        public event Action ShotSelf;
 
         protected virtual void Awake()
         {
@@ -86,6 +150,7 @@ namespace SandHouse.Weapons
             look = GetComponentInParent<PlayerLook>();
             motor = GetComponentInParent<PlayerMotor>();
             stats = GetComponentInParent<PlayerStats>();
+            roulette = GetComponent<RussianRoulette>();
             if (aimCamera == null) aimCamera = GetComponentInParent<Camera>();
 
             AutoWireParts();
@@ -105,8 +170,12 @@ namespace SandHouse.Weapons
 
         protected virtual void OnDisable()
         {
-            // Switching away cancels a reload and resets the pose.
+            // Switching away cancels a reload / inspect and resets the pose.
             CancelReload();
+            StopInspect();
+            selfAiming = false;
+            selfAimWeight = 0f;
+            adsWeight = 0f;
             kick = 0f;
             cycleTimer = 0f;
             if (muzzleFlash != null) muzzleFlash.enabled = false;
@@ -117,8 +186,13 @@ namespace SandHouse.Weapons
         {
             if (model == null) return;
             if (muzzle == null) muzzle = FindPart("Muzzle");
-            if (spinPart == null) spinPart = FindPart("Cylinder");
             if (leverPart == null) leverPart = FindPart("Lever");
+            if (spinPart == null)
+            {
+                spinPart = FindPart("Cylinder");
+                // Spin around the barrel, whatever axes the model was exported with.
+                if (spinPart != null) spinAxis = spinPart.InverseTransformDirection(transform.forward).normalized;
+            }
         }
 
         Transform FindPart(string partName)
@@ -134,14 +208,57 @@ namespace SandHouse.Weapons
             if (data == null || input == null) return;
 
             bool handsBusy = motor != null && (motor.IsMantling || motor.IsRolling || motor.IsWallClimbing);
-            if (PlayerLook.CursorLocked && !handsBusy && Holster < 0.05f)
+            if (handsBusy || Holster >= 0.05f)
+            {
+                StopInspect();
+                selfAiming = false;
+            }
+            bool canAct = PlayerLook.CursorLocked && !handsBusy && Holster < 0.05f;
+            if (canAct)
                 HandleInput();
 
+            // Aim down sights while Aim is held (not while reloading or with the gun at your head).
+            bool aiming = canAct && input.AimHeld && !IsReloading && !selfAiming;
+            if (aiming) StopInspect();
+            adsWeight = Mathf.MoveTowards(adsWeight, aiming ? 1f : 0f, Time.deltaTime / Mathf.Max(adsBlendTime, 0.01f));
+
+            UpdateInspect(Time.deltaTime);
             AnimateModel(Time.deltaTime);
         }
 
         void HandleInput()
         {
+            // Aim at self: middle click raises the gun to your head (and lowers it again); right click fires.
+            // Normal shooting is off while it's up; reloading lowers it.
+            if (SupportsSelfAim && input.AimAtSelfPressed && !IsReloading)
+            {
+                selfAiming = !selfAiming;
+                if (selfAiming) StopInspect();
+            }
+            if (selfAiming)
+            {
+                // With Russian roulette, R spins the cylinder instead of lowering the gun.
+                if (input.ReloadPressed && roulette != null)
+                {
+                    if (selfAimWeight > 0.9f) roulette.Spin();
+                    return;
+                }
+                if (input.ReloadPressed) selfAiming = false;
+                else
+                {
+                    if (input.AttackPressed && selfAimWeight > 0.9f) PullTriggerOnSelf();
+                    return;
+                }
+            }
+
+            // Inspect toggles; shooting or reloading cancels it (and still happens).
+            if (input.InspectPressed && CanInspect && !IsReloading)
+            {
+                if (IsInspecting) StopInspect();
+                else inspectTime = 0f;
+            }
+            if (IsInspecting && (input.AttackPressed || input.ReloadPressed)) StopInspect();
+
             if (input.ReloadPressed) StartReload();
 
             bool trigger = data.automatic ? input.AttackHeld : input.AttackPressed;
@@ -161,6 +278,7 @@ namespace SandHouse.Weapons
             bool deadEye = motor != null && motor.IsDeadEye;
             nextFireTime = Time.time + FireInterval * (deadEye ? data.deadEyeFireIntervalMultiplier : 1f);
             kick = 1f;
+            kickRollSign = UnityEngine.Random.value < 0.8f ? 1f : -0.6f; // mostly one way (torque), occasionally the other
             cycleTimer = data.cycleTime;
             spinTarget += spinPerShot;
 
@@ -178,6 +296,51 @@ namespace SandHouse.Weapons
 
         /// <summary>What actually happens when this weapon fires.</summary>
         protected abstract void Shoot(Ray aim);
+
+        void PullTriggerOnSelf()
+        {
+            // Russian roulette decides which chamber is under the hammer; otherwise it's live if there's any ammo.
+            bool live = roulette != null ? roulette.PullTrigger() : Ammo > 0;
+            if (live)
+            {
+                ShootSelf();
+                return;
+            }
+            kick = 0.25f; // empty chamber: just a dry click
+            if (roulette != null) spinTarget += spinPerShot; // the hammer advances the cylinder
+        }
+
+        /// <summary>Turns the spin part (cylinder) by extra degrees - used by the roulette spin.</summary>
+        public void AddSpin(float degrees, float extraVelocity = 0f)
+        {
+            spinTarget += degrees;
+            spinVelocity += extraVelocity;
+        }
+
+        void ShootSelf()
+        {
+            Ammo--;
+            kick = 1f;
+            if (muzzleFlash != null) StartCoroutine(Flash());
+            look?.AddRecoil(-6f, 14f); // head jerks sideways
+            selfAiming = false;
+            selfAimWeight = 0f;
+            ShotSelf?.Invoke();
+
+            // Normal player death: respawn in the arena, run over in the roguelike.
+            var health = GetComponentInParent<Health>();
+            if (health != null && !health.IsDead)
+            {
+                health.TakeDamage(new DamageInfo
+                {
+                    Amount = health.Current + health.Max,
+                    Point = aimCamera.transform.position,
+                    Direction = -aimCamera.transform.right,
+                    Source = gameObject,
+                    IsCritical = true,
+                });
+            }
+        }
 
         protected float StatDamageMultiplier => (stats != null ? stats.WeaponDamageMultiplier : 1f)
                                                 * (Upgrades != null ? Upgrades.DamageMultiplier : 1f);
@@ -242,25 +405,47 @@ namespace SandHouse.Weapons
             reloadRoutine = null;
             IsReloading = false;
             ReloadProgress = 0f;
+            ReloadPhase = ReloadPhase.None;
         }
 
         IEnumerator Reload()
         {
             IsReloading = true;
+            float speed = ReloadTimeMultiplier;
             if (data.reloadOneAtATime)
             {
+                int spent = MagazineSize - Ammo;
+                if (data.reloadOpenTime > 0f)
+                {
+                    ReloadPhase = ReloadPhase.Opening;
+                    yield return Progress(data.reloadOpenTime * speed);
+                }
+                ReloadOpened?.Invoke(spent);
+
+                ReloadPhase = ReloadPhase.Loading;
                 while (Ammo < MagazineSize)
                 {
-                    yield return Progress(data.roundReloadTime * ReloadTimeMultiplier);
+                    yield return Progress(data.roundReloadTime * speed);
                     Ammo++;
+                    roundJolt = 1f;
+                    if (data.reloadStyle == ReloadStyle.LoadingGate) spinTarget += spinPerShot; // index to the next chamber
+                    RoundLoaded?.Invoke();
+                }
+
+                if (data.reloadCloseTime > 0f)
+                {
+                    ReloadPhase = ReloadPhase.Closing;
+                    yield return Progress(data.reloadCloseTime * speed);
                 }
             }
             else
             {
-                yield return Progress(data.reloadTime * ReloadTimeMultiplier);
+                ReloadPhase = ReloadPhase.Loading;
+                yield return Progress(data.reloadTime * speed);
                 Ammo = MagazineSize;
             }
             ReloadProgress = 0f;
+            ReloadPhase = ReloadPhase.None;
             IsReloading = false;
             reloadRoutine = null;
         }
@@ -282,13 +467,50 @@ namespace SandHouse.Weapons
             muzzleFlash.enabled = false;
         }
 
+        // ---------------------------------------------------------------- inspect
+
+        void UpdateInspect(float dt)
+        {
+            if (!IsInspecting) return;
+            inspectTime += dt;
+            if (inspectTime >= inspectClip.length) StopInspect();
+            else inspectClip.SampleAnimation(inspectTarget, inspectTime);
+        }
+
+        void StopInspect()
+        {
+            if (!IsInspecting) return;
+            inspectTime = -1f;
+            inspectClip.SampleAnimation(inspectTarget, 0f); // back to the rest pose
+        }
+
+        /// <summary>0..1, eases the inspect offset in at the start and out at the end.</summary>
+        float InspectWeight
+        {
+            get
+            {
+                if (!IsInspecting) return 0f;
+                float edge = Mathf.Min(inspectTime, inspectClip.length - inspectTime);
+                return Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(edge / Mathf.Max(inspectBlendTime, 0.01f)));
+            }
+        }
+
         // ---------------------------------------------------------------- animation
 
         void AnimateModel(float dt)
         {
             kick = Mathf.MoveTowards(kick, 0f, data.modelRecoverySpeed * dt * Mathf.Max(kick, 0.1f));
             if (cycleTimer > 0f) cycleTimer -= dt;
-            spinAngle = Mathf.Lerp(spinAngle, spinTarget, 1f - Mathf.Exp(-20f * dt));
+            // Spring the spin part to its target: you see it turn, overshoot slightly and settle.
+            spinVelocity += ((spinTarget - spinAngle) * spinStiffness - spinVelocity * spinDamping) * dt;
+            spinAngle += spinVelocity * dt;
+
+            // Gate pose eases in while opening/loading and back out when closing or interrupted.
+            bool gateUp = IsReloading && ReloadPhase != ReloadPhase.Closing && data.reloadStyle == ReloadStyle.LoadingGate;
+            float gateTime = Mathf.Max(gateUp ? data.reloadOpenTime : data.reloadCloseTime, 0.12f) * ReloadTimeMultiplier;
+            gateOpen = Mathf.MoveTowards(gateOpen, gateUp ? 1f : 0f, dt / gateTime);
+            roundJolt = Mathf.MoveTowards(roundJolt, 0f, dt * 6f);
+            selfAimWeight = Mathf.MoveTowards(selfAimWeight, selfAiming ? 1f : 0f, dt / Mathf.Max(selfAimBlendTime, 0.01f));
             ApplyPose();
         }
 
@@ -305,9 +527,14 @@ namespace SandHouse.Weapons
             float cycle = cycleTimer > 0f && data.cycleTime > 0f ? Mathf.Sin((1f - cycleTimer / data.cycleTime) * Mathf.PI) : 0f;
 
             ReloadPose(out Vector3 reloadOffset, out Quaternion reloadRotation);
-            model.localPosition = modelRestPosition + new Vector3(0f, 0f, -data.modelKickDistance * kick) + reloadOffset;
+            float selfAim = Mathf.SmoothStep(0f, 1f, selfAimWeight);
+            model.localPosition = modelRestPosition + new Vector3(0f, 0f, -data.modelKickDistance * kick) + reloadOffset
+                                  + inspectOffset * InspectWeight
+                                  + selfAimOffset * selfAim
+                                  + adsOffset * Mathf.SmoothStep(0f, 1f, adsWeight);
             model.localRotation = modelRestRotation
-                                  * Quaternion.Euler(-data.modelKickAngle * kick + 8f * cycle, 0f, 0f)
+                                  * Quaternion.Slerp(Quaternion.identity, Quaternion.Euler(selfAimRotation), selfAim)
+                                  * Quaternion.Euler(-data.modelKickAngle * kick + 8f * cycle, 0f, data.modelKickRoll * kickRollSign * kick)
                                   * reloadRotation;
 
             if (spinPart != null) spinPart.localRotation = spinRest * Quaternion.AngleAxis(spinAngle, spinAxis);
@@ -318,6 +545,18 @@ namespace SandHouse.Weapons
         {
             offset = Vector3.zero;
             rotation = Quaternion.identity;
+
+            if (data.reloadStyle == ReloadStyle.LoadingGate)
+            {
+                // Roll onto the left side so the loading gate (right side) faces up, muzzle tipped up,
+                // pulled towards the middle of the screen. Each round pushed in gives a small jolt.
+                float open = Mathf.SmoothStep(0f, 1f, gateOpen);
+                float push = Mathf.Sin(roundJolt * Mathf.PI) * open;
+                offset = new Vector3(-0.07f, 0.035f, -0.03f) * open + new Vector3(0f, -0.004f, 0.008f) * push;
+                rotation = Quaternion.Euler(-18f * open + 4f * push, -10f * open, 60f * open);
+                return;
+            }
+
             if (!IsReloading) return;
 
             float p = ReloadProgress;

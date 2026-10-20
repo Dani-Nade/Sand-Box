@@ -96,6 +96,33 @@
                     "initialStateCheck": false
                 },
                 {
+                    "name": "Inspect",
+                    "type": "Button",
+                    "id": "e8a1c2d3-4b5f-4607-9a18-2b3c4d5e6f71",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "AimAtSelf",
+                    "type": "Button",
+                    "id": "1bd4f506-7e8c-4a3b-ad4b-5e6f708192a4",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "Aim",
+                    "type": "Button",
+                    "id": "2ce50617-8f9d-4b4c-be5c-6f708192a3b5",
+                    "expectedControlType": "Button",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
                     "name": "Lasso",
                     "type": "Button",
                     "id": "d6a8b5c4-9e0f-4a1b-8c23-5d6e7f8091a2",
@@ -674,6 +701,61 @@
                     "processors": "",
                     "groups": "Keyboard&Mouse",
                     "action": "Weapon4",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "f9b2d3e4-5c6a-4718-8b29-3c4d5e6f7182",
+                    "path": "<Keyboard>/t",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Inspect",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "0ac3e4f5-6d7b-4829-9c3a-4d5e6f708293",
+                    "path": "<Gamepad>/dpad/up",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Inspect",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "3df61728-90ae-4c5d-8f6d-708192a3b4c6",
+                    "path": "<Mouse>/middleButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "AimAtSelf",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "4e072839-a1bf-4d6e-907e-8192a3b4c5d7",
+                    "path": "<Mouse>/rightButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Keyboard&Mouse",
+                    "action": "Aim",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "5f183a4b-b2c0-4e7f-a18f-92a3b4c5d6e8",
+                    "path": "<Gamepad>/leftTrigger",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "Gamepad",
+                    "action": "Aim",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

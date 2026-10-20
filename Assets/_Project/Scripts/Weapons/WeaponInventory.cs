@@ -30,6 +30,7 @@ namespace SandHouse.Weapons
         public event Action Fired;
         public event Action<HitResult> HitTarget;
         public event Action<Weapon> Switched;
+        public event Action ShotSelf;
 
         void Awake()
         {
@@ -38,6 +39,7 @@ namespace SandHouse.Weapons
             {
                 weapons[i].Fired += () => Fired?.Invoke();
                 weapons[i].HitTarget += hit => HitTarget?.Invoke(hit);
+                weapons[i].ShotSelf += () => ShotSelf?.Invoke();
                 weapons[i].gameObject.SetActive(i == 0);
             }
             currentIndex = targetIndex = weapons.Count > 0 ? 0 : -1;

@@ -30,7 +30,16 @@ namespace SandHouse.Player
 
         public static bool CursorLocked => Cursor.lockState == CursorLockMode.Locked;
 
-        void Awake() => input = GetComponent<PlayerInputReader>();
+        [Tooltip("Extra sensitivity multiplier while aiming down sights (on top of the zoom).")]
+        [SerializeField, Range(0.2f, 1.5f)] float adsSensitivity = 0.9f;
+
+        Weapons.WeaponInventory weapons;
+
+        void Awake()
+        {
+            input = GetComponent<PlayerInputReader>();
+            weapons = GetComponentInChildren<Weapons.WeaponInventory>(true);
+        }
 
         void OnEnable() => UIState.Changed += OnMenusChanged;
         void OnDisable() => UIState.Changed -= OnMenusChanged;
@@ -61,6 +70,10 @@ namespace SandHouse.Player
                 delta *= GameSettings.MouseSensitivity;
             }
             if (GameSettings.InvertY) delta.y = -delta.y;
+
+            // Slower look while aiming down sights (scaled with the zoom so aim feels consistent).
+            var weapon = weapons != null ? weapons.Current : null;
+            if (weapon != null) delta *= Mathf.Lerp(1f, weapon.AdsZoom * adsSensitivity, weapon.AimWeight);
 
             transform.Rotate(0f, delta.x, 0f, Space.Self);
             pitch = Mathf.Clamp(pitch - delta.y, -maxPitch, maxPitch);

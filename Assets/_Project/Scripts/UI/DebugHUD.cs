@@ -26,8 +26,10 @@ namespace SandHouse.UI
         const float HitmarkerDuration = 0.15f;
         const float CalloutDuration = 0.9f;
 
-        Text ammoText, weaponNameText, weaponListText, statsText, calloutText, deadEyeText, dashText;
-        Image deadEyeOverlay;
+        Text ammoText, weaponNameText, weaponListText, statsText, calloutText, deadEyeText, dashText, selfAimText;
+        Image deadEyeOverlay, blackout;
+        float blackoutTimer;
+        const float BlackoutDuration = 1.4f;
         Image[] hitmarker;
         float hitmarkerTimer, calloutTimer, fpsSmoothed;
 
@@ -35,7 +37,19 @@ namespace SandHouse.UI
 
         void OnEnable()
         {
-            if (weapons != null) weapons.HitTarget += OnHit;
+            if (weapons != null)
+            {
+                weapons.HitTarget += OnHit;
+                weapons.ShotSelf += OnShotSelf;
+                foreach (var weapon in weapons.Weapons)
+                {
+                    var roulette = weapon.GetComponent<RussianRoulette>();
+                    if (roulette == null) continue;
+                    roulette.Spun += OnRouletteSpun;
+                    roulette.Survived += OnRouletteSurvived;
+                    roulette.NeedsAmmo += OnRouletteNeedsAmmo;
+                }
+            }
             if (motor == null) return;
             motor.MantleSlideAttempted += OnMantleSlideAttempted;
             motor.Rolled += OnRolled;
@@ -48,7 +62,19 @@ namespace SandHouse.UI
 
         void OnDisable()
         {
-            if (weapons != null) weapons.HitTarget -= OnHit;
+            if (weapons != null)
+            {
+                weapons.HitTarget -= OnHit;
+                weapons.ShotSelf -= OnShotSelf;
+                foreach (var weapon in weapons.Weapons)
+                {
+                    var roulette = weapon.GetComponent<RussianRoulette>();
+                    if (roulette == null) continue;
+                    roulette.Spun -= OnRouletteSpun;
+                    roulette.Survived -= OnRouletteSurvived;
+                    roulette.NeedsAmmo -= OnRouletteNeedsAmmo;
+                }
+            }
             if (motor == null) return;
             motor.MantleSlideAttempted -= OnMantleSlideAttempted;
             motor.Rolled -= OnRolled;
@@ -78,8 +104,48 @@ namespace SandHouse.UI
             calloutTimer = CalloutDuration;
         }
 
+        /// <summary>Cut to black, then fade back in (the respawn / run-over screen takes it from there).</summary>
+        void OnShotSelf() => blackoutTimer = BlackoutDuration;
+
+        void OnRouletteSpun(int loaded, int chambers) => Callout($"*whirr*   {loaded} in {chambers}", Color.white);
+        void OnRouletteNeedsAmmo() => Callout("LOAD AT LEAST ONE ROUND", BadColor);
+
+        void OnRouletteSurvived(bool paid) =>
+            Callout(paid ? "*click*   SURVIVED  +1 POINT" : "*click*   survived (spin for a reward)", paid ? GoodColor : Color.white);
+
+        /// <summary>Hint line under the crosshair while the gun is at your head.</summary>
+        void UpdateSelfAimText()
+        {
+            Weapon current = weapons != null ? weapons.Current : null;
+            bool aiming = current != null && current.IsAimingAtSelf;
+            selfAimText.enabled = aiming;
+            if (!aiming) return;
+
+            var roulette = current.GetComponent<RussianRoulette>();
+            selfAimText.text = roulette == null
+                ? "GUN TO HEAD     [LMB] pull trigger     [MMB] lower"
+                : $"RUSSIAN ROULETTE   {roulette.LoadedRounds} of {roulette.Chambers} loaded" +
+                  (roulette.IsSpun ? "" : "   (not spun)") +
+                  "\n[R] spin     [LMB] pull trigger     [MMB] lower";
+        }
+
+        void UpdateBlackout(float dt)
+        {
+            if (blackoutTimer <= 0f)
+            {
+                blackout.enabled = false;
+                return;
+            }
+            blackoutTimer -= dt;
+            blackout.enabled = true;
+            float t = 1f - blackoutTimer / BlackoutDuration;
+            blackout.color = new Color(0f, 0f, 0f, t < 0.35f ? 1f : 1f - (t - 0.35f) / 0.65f);
+        }
+
         void Update()
         {
+            UpdateBlackout(Time.unscaledDeltaTime);
+            UpdateSelfAimText();
             // Unscaled so the HUD behaves normally during Dead Eye slow motion.
             float dt = Time.unscaledDeltaTime;
 
@@ -196,6 +262,10 @@ namespace SandHouse.UI
             deadEyeOverlay.rectTransform.Stretch();
             deadEyeOverlay.enabled = false;
 
+            blackout = UIFactory.CreateImage(root, "Blackout", Color.black);
+            blackout.rectTransform.Stretch();
+            blackout.enabled = false;
+
             BuildCrosshair(root);
             hitmarker = BuildHitmarker(root);
             SetHitmarkerAlpha(0f);
@@ -219,12 +289,17 @@ namespace SandHouse.UI
             statsText.rectTransform.Place(new Vector2(0f, 1f), new Vector2(30f, -30f), new Vector2(800f, 200f));
             statsText.gameObject.SetActive(showMovementStats);
 
+            selfAimText = UIFactory.CreateText(root, "Self Aim", "", 22, TextAnchor.UpperCenter, UIFactory.AccentColor);
+            selfAimText.rectTransform.Place(new Vector2(0.5f, 0.5f), new Vector2(0f, -130f), new Vector2(900f, 60f));
+            selfAimText.enabled = false;
+
             calloutText = UIFactory.CreateText(root, "Callout", "", 34, TextAnchor.MiddleCenter, Color.clear);
             calloutText.rectTransform.Place(center, new Vector2(0f, -90f), new Vector2(800f, 50f));
 
             var help = UIFactory.CreateText(root, "Controls",
                 "WASD move   Shift dash (3 charges, works in the air)   Space jump   Ctrl crouch\n" +
-                "LMB shoot   R reload   1-4 / scroll = switch weapon   Esc pause   Hold Tab = stats + owned upgrades\n" +
+                "LMB shoot   Hold RMB aim   R reload   T inspect   1-4 / scroll = switch weapon   Esc pause   Hold Tab = stats + owned upgrades\n" +
+                "MMB gun to head (revolver: R spins for Russian roulette, LMB pulls the trigger)\n" +
                 "Dash + Space = dash jump      Shotgun at the ground in the air = shotgun jump\n" +
                 "Run/dash + hold Ctrl = slide      Jump into wall + hold W = climb / mantle\n" +
                 "Ctrl at the END of a mantle = mantle slide\n" +
@@ -236,7 +311,8 @@ namespace SandHouse.UI
                 "Ctrl just before a hard landing = roll      Shoot in the air = recoil hop\n" +
                 "Jump again right as you land = bunny hop (keeps speed, chains add speed)",
                 19, TextAnchor.UpperRight, UIFactory.MutedTextColor);
-            help.rectTransform.Place(new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(1000f, 310f));
+            help.rectTransform.Place(new Vector2(1f, 1f), new Vector2(-30f, -30f), new Vector2(1100f, 340f));
+            blackout.transform.SetAsLastSibling(); // covers everything else on the HUD
             help.gameObject.SetActive(showControls);
         }
 

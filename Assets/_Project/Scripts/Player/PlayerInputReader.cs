@@ -12,7 +12,7 @@ namespace SandHouse.Player
         [Tooltip("Optional action asset override. Leave empty to use the project's input actions.")]
         [SerializeField] InputActionAsset actionAsset;
         InputActionMap map;
-        InputAction move, look, jump, dash, crouch, attack, reload, lasso, deadEye, stats, nextWeapon, previousWeapon;
+        InputAction move, look, jump, dash, crouch, attack, reload, lasso, deadEye, stats, nextWeapon, previousWeapon, inspect, aimAtSelf, aim;
         readonly InputAction[] weaponSlots = new InputAction[4];
         bool movementNeedsNeutral = true;
         bool hasInputFocus = true;
@@ -43,6 +43,9 @@ namespace SandHouse.Player
         public bool AttackPressed => attack.WasPressedThisFrame();
         public bool AttackHeld => attack.IsPressed();
         public bool ReloadPressed => reload.WasPressedThisFrame();
+        public bool InspectPressed => inspect.WasPressedThisFrame();
+        public bool AimAtSelfPressed => aimAtSelf.WasPressedThisFrame();
+        public bool AimHeld => aim.IsPressed();
         public bool LassoPressed => lasso.WasPressedThisFrame();
         public bool LassoHeld => lasso.IsPressed();
         public bool DeadEyePressed => deadEye.WasPressedThisFrame();
@@ -75,6 +78,9 @@ namespace SandHouse.Player
             stats = map.FindAction("Stats", true);
             nextWeapon = map.FindAction("Next", true);
             previousWeapon = map.FindAction("Previous", true);
+            inspect = map.FindAction("Inspect", true);
+            aimAtSelf = map.FindAction("AimAtSelf", true);
+            aim = map.FindAction("Aim", true);
             for (int i = 0; i < weaponSlots.Length; i++)
                 weaponSlots[i] = map.FindAction($"Weapon{i + 1}", true);
         }

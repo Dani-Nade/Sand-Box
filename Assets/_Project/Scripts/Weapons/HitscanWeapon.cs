@@ -19,7 +19,7 @@ namespace SandHouse.Weapons
         {
             Transform cam = aimCamera.transform;
             int extra = Upgrades != null ? Upgrades.ExtraBullets : 0;
-            float spread = Mathf.Tan((data.spreadAngle + extra * 2f) * Mathf.Deg2Rad);
+            float spread = Mathf.Tan((data.spreadAngle + extra * 2f) * AimSpreadMultiplier * Mathf.Deg2Rad);
 
             for (int i = 0; i < Mathf.Max(1, data.pellets) + extra; i++)
             {

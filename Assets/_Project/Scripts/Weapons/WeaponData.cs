@@ -12,6 +12,8 @@ namespace SandHouse.Weapons
         Dip,
         /// <summary>Hand drops out of view to grab more (throwables).</summary>
         Lower,
+        /// <summary>Single-action revolver: gun rolls onto its side, rounds go in one by one through the loading gate.</summary>
+        LoadingGate,
     }
 
     /// <summary>
@@ -54,6 +56,10 @@ namespace SandHouse.Weapons
         public float reloadTime = 1.2f;
         [Tooltip("Time per round when reloading one at a time.")]
         public float roundReloadTime = 0.45f;
+        [Tooltip("One-at-a-time reloads: time to get into the reload pose first (open the gate, eject casings).")]
+        public float reloadOpenTime;
+        [Tooltip("One-at-a-time reloads: time to get back to firing after the last round.")]
+        public float reloadCloseTime;
         public bool autoReloadWhenEmpty = true;
         public ReloadStyle reloadStyle = ReloadStyle.Spin;
 
@@ -66,6 +72,8 @@ namespace SandHouse.Weapons
         public float recoilYawRandom = 0.6f;
         public float modelKickDistance = 0.07f;
         public float modelKickAngle = 12f;
+        [Tooltip("Sideways twist of the gun on each shot, in degrees (revolver torque). 0 = none.")]
+        public float modelKickRoll;
         public float modelRecoverySpeed = 14f;
 
         [Header("Movement")]

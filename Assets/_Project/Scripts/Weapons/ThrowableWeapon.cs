@@ -8,6 +8,8 @@ namespace SandHouse.Weapons
     /// </summary>
     public class ThrowableWeapon : Weapon
     {
+        protected override bool SupportsSelfAim => false;
+
         [Header("Throwable Visuals")]
         [SerializeField] Material stickMaterial;
         [SerializeField] Material fuseMaterial;

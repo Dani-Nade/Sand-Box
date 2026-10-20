@@ -196,8 +196,11 @@ namespace SandHouse.Weapons
                             + mantleRotation * mantleEase
                             + wallRunRotation * wallRunEase;
 
-            transform.localPosition = restPosition + position * intensity;
-            transform.localRotation = restRotation * Quaternion.Euler(euler * intensity);
+            // Steady the gun while aiming down sights (sway, bob and tilts mostly go away).
+            var current = weapons != null ? weapons.Current : null;
+            float steady = intensity * (1f - 0.85f * (current != null ? current.AimWeight : 0f));
+            transform.localPosition = restPosition + position * steady;
+            transform.localRotation = restRotation * Quaternion.Euler(euler * steady);
         }
     }
 }
